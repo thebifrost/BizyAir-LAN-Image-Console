@@ -1,0 +1,37 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Runtime data
+data/
+logs/
+*.sqlite
+*.sqlite-*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Build and packaging
+build/
+dist/
+*.egg-info/
+
+# Temporary and local files
+.temp/
+.tmp/
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+
+# Claude/local harness settings
+.claude/settings.local.json

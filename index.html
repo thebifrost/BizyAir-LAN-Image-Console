@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BizyAir LAN Image Console by Bifrost</title>
+    <link rel="stylesheet" href="/static/css/app.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand"><div class="mark">LAN</div><span>BizyAir LAN Image Console by Bifrost</span></div>
+        <div class="nav-actions">
+          <span class="pill" id="gatewayStatus">待认证</span>
+          <button class="pill" id="openAuth">访问口令</button>
+          <button class="pill" id="refreshJobs">刷新历史</button>
+        </div>
+      </header>
+
+      <section class="main-layout">
+        <!-- Left: Image rail -->
+        <aside class="image-rail">
+          <div class="image-rail-head">
+            <h2>图片输入</h2>
+            <small>主图固定为图1；参考图从图2开始。单次提交最多 10 张，多张主图会在每次提交后自动轮换。</small>
+          </div>
+
+          <div class="image-box" id="mainImageBox" data-role="main">
+            <div class="preview-head"><strong>主图</strong><span class="preview-head-actions"><span id="mainPreviewCount">0 张已选</span><button class="clear-images" type="button" id="clearMainImages">清空</button></span></div>
+            <div class="image-box-drop">
+              <input class="upload-file-input" id="mainImageFiles" type="file" accept="image/*" multiple />
+              <div class="image-box-copy"><strong>拖入主图到这里</strong><span>拖入或点击选择后会立即上传到主图框，多张主图提交时自动轮换。</span></div>
+              <div class="upload-actions"><label class="file-pick" for="mainImageFiles">选择主图</label><button class="secondary" type="button" id="chooseHistoricalMain">选择历史上传</button></div>
+            </div>
+            <div class="preview-grid image-main-grid" id="mainImagePreview"><div class="hint">暂无主图。</div></div>
+          </div>
+
+          <div class="image-box" id="referenceImageBox" data-role="reference">
+            <div class="preview-head"><strong>参考图</strong><span class="preview-head-actions"><span id="previewCount">0 张已选</span><button class="clear-images" type="button" id="clearReferenceImages">清空</button></span></div>
+            <div class="image-box-drop">
+              <input class="upload-file-input" id="referenceImageFiles" type="file" accept="image/*" multiple />
+              <div class="image-box-copy"><strong>拖入参考图到这里</strong><span>参考图会从 Image 2 开始拼接，单次提交最多 10 张。</span></div>
+              <div class="upload-actions"><label class="file-pick" for="referenceImageFiles">选择参考图</label><button class="secondary" type="button" id="chooseHistoricalReference">选择历史上传</button></div>
+            </div>
+            <div class="preview-grid" id="referencePreview"><div class="hint">暂无参考图。</div></div>
+          </div>
+
+          <div class="field full is-hidden">
+            <label for="urls">图片 URL（内部）</label>
+            <textarea id="urls" placeholder="上传成功后自动写入"></textarea>
+          </div>
+        </aside>
+
+        <!-- Center: Workspace -->
+        <div class="workspace">
+          <div class="studio">
+            <div class="studio-head">
+              <div>
+                <h2>生图工作区</h2>
+                <small>配置参数后逐项提交，每个任务可独立选择模型和参考图。</small>
+              </div>
+              <span class="pill" id="activeKey">待认证</span>
+            </div>
+
+            <form id="generateForm" class="grid-form">
+              <div class="field full">
+                <label for="prompt">提示词</label>
+                <textarea id="prompt" required placeholder="描述你想要生成的图片内容..."></textarea>
+              </div>
+
+              <div class="field">
+                <label for="model">模型</label>
+                <select id="model"></select>
+              </div>
+
+              <div class="field">
+                <label for="aspectRatio">宽高比</label>
+                <select id="aspectRatio"></select>
+              </div>
+
+              <div class="field"><label for="resolution">分辨率</label><select id="resolution"></select></div>
+              <div class="field"><label for="quality">质量</label><select id="quality"></select></div>
+              <div class="field"><label for="variants">变体数量</label><select id="variants"></select></div>
+
+
+              <div class="field is-hidden">
+                <label for="temperature">Temperature <span id="temperatureValue">1</span></label>
+                <div class="range-row"><input id="temperature" type="range" min="0" max="2" step="0.05" value="1" /><input id="temperatureNumber" type="number" min="0" max="2" step="0.05" value="1" /></div>
+              </div>
+
+              <div class="field is-hidden">
+                <label for="topP">Top P <span id="topPValue">0.95</span></label>
+                <div class="range-row"><input id="topP" type="range" min="0" max="1" step="0.05" value="0.95" /><input id="topPNumber" type="number" min="0" max="1" step="0.05" value="0.95" /></div>
+              </div>
+
+              <div class="field"><label for="seed">Seed</label><div class="inline-actions"><input id="seed" type="number" min="0" max="2147483647" value="0" /><button class="secondary compact" id="randomSeed" type="button">随机</button><button class="secondary compact" id="resetSeed" type="button">归零</button></div></div>
+              <div class="field"><label for="autoRetryEnabled">失败自动重试</label><select id="autoRetryEnabled"><option value="true">开启</option><option value="false">关闭</option></select></div>
+              <div class="field"><label for="autoRetryMaxAttempts">重试次数</label><input id="autoRetryMaxAttempts" type="number" min="0" max="10" value="2" /></div>
+              <div class="field is-hidden"><label for="maxTokens">Max Tokens</label><input id="maxTokens" type="number" min="1" max="32768" value="32768" /></div>
+            </form>
+
+            <div class="actions">
+              <button class="primary" type="button" id="submitJobs">提交生成</button>
+              <button class="secondary" type="button" id="batchSubmitJobs">批次生成</button>
+              <button class="secondary danger" type="button" id="stopJobs">取消当前</button>
+              <span class="hint" id="submitHint">配置好参数后点击提交。</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Right: Sidebar -->
+        <div class="sidebar">
+          <div class="sidebar-section task-queue" id="taskQueueSection">
+            <div class="sidebar-head">
+              <h2>任务队列</h2>
+              <div class="task-head-actions">
+                <span class="hint" id="taskCount">0 个任务</span>
+                <button class="secondary" id="toggleTaskQueue" type="button" style="min-height:32px;padding:0 12px;font-size:12px;">折叠</button>
+              </div>
+            </div>
+            <div class="task-list" id="taskList">
+              <div class="task-queue-empty">提交任务后在这里查看进度和结果。</div>
+            </div>
+          </div>
+
+          <div class="sidebar-section task-large-preview" id="taskLargePreview">
+            <div class="task-large-empty">点击任务队列预览生成大图。</div>
+          </div>
+
+          <div class="sidebar-section log-panel" id="logPanel">
+            <div class="log-head">
+              <strong>任务日志</strong>
+              <div class="log-head-actions">
+                <button class="secondary" id="toggleLogPanel" type="button" style="min-height:32px;padding:0 12px;font-size:12px;">折叠</button>
+                <button class="secondary" id="clearLog" style="min-height:32px;padding:0 12px;font-size:12px;">清空</button>
+              </div>
+            </div>
+            <div class="log-stream" id="log">
+              <div class="log-entry info"><span class="log-time">--:--:--</span><span class="log-level">ready</span><span>等待任务...</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="bottom-history sidebar-section">
+        <div class="sidebar-head">
+          <h2>历史画廊</h2>
+          <div class="history-controls">
+            <span class="hint" id="historyCount">0 张</span>
+            <label class="hint" for="historyPageSize">每页</label>
+            <select id="historyPageSize">
+              <option value="12">12</option>
+              <option value="24" selected>24</option>
+              <option value="48">48</option>
+              <option value="96">96</option>
+            </select>
+            <label class="hint" for="historyColumns">每行</label>
+            <select id="historyColumns">
+              <option value="3">3</option>
+              <option value="4" selected>4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="8">8</option>
+            </select>
+            <input id="historySearch" type="search" placeholder="搜索提示词" />
+            <select id="historyModelFilter"><option value="">全部模型</option></select>
+            <select id="historySort"><option value="newest">最新</option><option value="oldest">最早</option></select>
+            <button class="secondary" id="historyPrevPage" type="button">上一页</button>
+            <span class="hint history-page-info" id="historyPageInfo">1 / 1</span>
+            <button class="secondary" id="historyNextPage" type="button">下一页</button>
+            <button class="secondary" id="clearResults" style="min-height:34px;padding:0 12px;font-size:12px;">清空当前视图</button>
+          </div>
+        </div>
+        <div class="history-grid" id="results">
+          <div class="history-empty">还没有历史结果。</div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="authDialog">
+      <div class="modal-head"><h3>局域网访问口令</h3></div>
+      <div class="modal-body">
+        <div class="field">
+          <label for="tokenInput">访问口令</label>
+          <input id="tokenInput" type="password" autocomplete="current-password" placeholder="输入 ADMIN_TOKEN" />
+        </div>
+        <div class="actions" style="padding:0;">
+          <button class="secondary" id="refreshAccount" type="button">查询账户与余额</button>
+          <button class="secondary danger" id="clearToken" type="button">清除本机口令</button>
+        </div>
+        <div class="key-list" id="accountBox"><div class="hint">BizyAir API Key 只保存在后端，浏览器只保存会话口令。</div></div>
+        <p class="hint">口令保存在 sessionStorage，关闭标签页后需重新输入。</p>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary" id="closeAuth" type="button">关闭</button>
+        <button class="primary" id="saveToken" type="button">保存口令</button>
+      </div>
+    </dialog>
+
+    <dialog id="historicalPickerDialog">
+      <div class="modal-head"><h3>选择历史上传</h3></div>
+      <div class="modal-body">
+        <div class="picker-tabs">
+          <button class="secondary is-active" id="pickerMainTab" type="button">主图</button>
+          <button class="secondary" id="pickerReferenceTab" type="button">参考图</button>
+        </div>
+        <div class="hint" id="historicalPickerHint">选择图片加入主图或参考图。</div>
+        <div class="historical-picker-grid" id="historicalPickerGrid"><div class="history-empty">正在读取历史上传...</div></div>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary" id="closeHistoricalPicker" type="button">关闭</button>
+      </div>
+    </dialog>
+
+    <dialog id="imageLightbox" class="image-lightbox">
+      <div class="lightbox-body">
+        <button class="lightbox-close" id="closeImageLightbox" type="button">关闭</button>
+        <img id="lightboxImage" alt="历史大图预览" />
+        <div class="lightbox-actions">
+          <button class="secondary" id="addLightboxReference" type="button">加参考</button>
+          <button class="secondary" id="setLightboxMain" type="button">设为主图</button>
+          <button class="secondary" id="rerunLightboxImage" type="button">再次生成</button>
+          <button class="secondary" id="loadLightboxParams" type="button">加载参数</button>
+          <button class="secondary" id="copyLightboxImage" type="button">复制链接</button>
+          <a class="secondary download-icon" id="downloadLightboxImage" download target="_blank" rel="noopener" aria-label="下载原图" title="下载原图"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></a>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="deleteImageDialog">
+      <div class="modal-head"><h3>移除历史图片</h3></div>
+      <div class="modal-body">
+        <p>确认要从历史画廊和数据库中移除这张图片吗？此操作会删除本地归档文件，刷新后也不会再显示。</p>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary" id="cancelDeleteImage" type="button">取消</button>
+        <button class="danger" id="confirmDeleteImage" type="button">确认移除</button>
+      </div>
+    </dialog>
+
+    <div class="image-hover-preview" id="imageHoverPreview"><img id="imageHoverPreviewImg" alt="输入图片预览" /></div>
+    <div class="toast" id="toast"></div>
+
+    <script src="/static/js/state.js"></script>
+    <script src="/static/js/utils.js"></script>
+    <script src="/static/js/logging.js"></script>
+    <script src="/static/js/config.js"></script>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/auth.js"></script>
+    <script src="/static/js/gateway.js"></script>
+    <script src="/static/js/upload.js"></script>
+    <script src="/static/js/model-fields.js"></script>
+    <script src="/static/js/tasks.js"></script>
+    <script src="/static/js/history.js"></script>
+    <script src="/static/js/events.js"></script>
+    <script src="/static/js/app.js"></script>
+  </body>
+</html>
