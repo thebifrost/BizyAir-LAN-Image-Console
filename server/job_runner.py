@@ -27,6 +27,7 @@ class JobRunner:
         self.enqueued_lock = threading.Lock()
         self.key_pool = BizyAirKeyPool(config.bizyair_keys)
         self.stop_event = threading.Event()
+        self.threads: list[threading.Thread] = []
 
     def start(self) -> None:
         for item_id in self.db.queued_item_ids():
@@ -34,6 +35,7 @@ class JobRunner:
         for index in range(self.config.worker_threads):
             thread = threading.Thread(target=self._worker, name=f"job-worker-{index + 1}", daemon=True)
             thread.start()
+            self.threads.append(thread)
 
     def enqueue_job(self, job: dict) -> None:
         for item in job.get("items", []):
@@ -49,6 +51,12 @@ class JobRunner:
 
     def size(self) -> int:
         return self.queue.qsize()
+
+    def stop(self) -> None:
+        self.stop_event.set()
+        self.queue.join()
+        for thread in self.threads:
+            thread.join(timeout=2)
 
     def _worker(self) -> None:
         while True:

@@ -8,7 +8,7 @@ def configure_logging(config: AppConfig) -> tuple[logging.Logger, logging.Logger
     config.log_dir.mkdir(parents=True, exist_ok=True)
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
     app_logger = logging.getLogger("bizyair_lan")
-    app_logger.setLevel(logging.INFO)
+    app_logger.setLevel(logging.DEBUG if config.debug_requests else logging.INFO)
     app_logger.handlers.clear()
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)

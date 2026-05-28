@@ -38,8 +38,12 @@
 - 多 BizyAir Key：支持单 Key 或多 Key，任务按 Key 轮询分配。
 - 结果本地归档：生成结果会保存到本地 `data/result-images/`，减少远程图片失效影响。
 - 历史画廊：支持查看、搜索、分页、预览、下载、复用历史结果。
-- 访问口令保护：前端请求受 `ADMIN_TOKEN` 保护。
+- OpenAI 兼容接口：提供 `/v1/models`、`/v1/chat/completions`、`/v1/images/generations`、`/v1/images/edits`，可让支持 OpenAI API 的客户端接入本地 BizyAir 生图能力。
+- OpenAI 设置弹窗：前端可查看 OpenAI Base URL、当前活跃队列数量、监听端口，并可保存端口配置或触发服务重启。
+- 运行日志查看：前端可刷新查看应用日志和审计日志，后端只读取日志尾部，适合排查问题。
+- 访问口令保护：前端请求受 `ADMIN_TOKEN` 保护，OpenAI 兼容接口同样使用 Bearer Token 认证。
 - 本地日志与审计：记录运行日志、访问操作和任务操作，敏感 Key 会做脱敏处理。
+- 可选请求调试日志：`DEBUG_REQUESTS` 默认关闭，排障时可临时打开完整请求/响应日志。
 
 ## 工作原理
 
@@ -205,9 +209,10 @@ http://127.0.0.1:8787
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `APP_HOST` | `127.0.0.1` | HTTP 服务监听地址。`127.0.0.1` 仅本机访问，`0.0.0.0` 可局域网访问。 |
-| `APP_PORT` | `8787` | HTTP 服务端口。 |
+| `APP_PORT` | `8787` | HTTP 服务端口。也可在前端“OpenAI 设置”弹窗中修改，保存后需要重启服务生效。 |
 | `UPLOAD_SERVER_PORT` | `8787` | 旧端口变量，仅在未设置 `APP_PORT` 时作为兼容读取。 |
 | `CORS_ORIGINS` | `http://127.0.0.1:<port>,http://localhost:<port>` | 允许跨域来源，逗号分隔。 |
+| `DEBUG_REQUESTS` | 关闭 | 请求调试日志开关。设置为 `1`、`true`、`yes` 或 `on` 时，会把请求方法、路径、请求头、请求体和 JSON 响应写入 `app.log` 与控制台。只建议短时间排障使用，默认应保持关闭。 |
 
 ### BizyAir 上游配置
 
@@ -337,6 +342,18 @@ Ctrl+C
 - “失败自动重试”：前端在任务失败后自动调用重试接口，重试次数可在页面中配置。
 
 后端会把一个批次拆成多个子任务，写入 SQLite，并交给后台 worker 执行。
+
+### OpenAI 设置与运行状态
+
+点击顶部“OpenAI 设置”可以打开运行设置弹窗。弹窗包含：
+
+- `Base URL`：当前服务对外提供的 OpenAI 兼容接口地址，通常是 `http://127.0.0.1:8787/v1` 或局域网访问地址加 `/v1`。
+- `队列`：当前数据库中仍处于 `queued` 或 `running` 的活跃子任务数量。该数值包含已被 worker 取走但仍在生成中的任务，不只是内存队列长度。
+- `端口`：写入 `.env` 中的 `APP_PORT`。保存后不会立刻迁移当前进程端口，需要重启服务。
+- `重启`：请求后端重启当前服务。重启前会停止接收新队列并等待已入队任务处理完成，减少正在执行的上游任务被重复提交的概率。
+- `刷新`：刷新运行状态、Base URL、队列数量和新增外部 OpenAI 任务。
+
+如果服务绑定 `APP_HOST=0.0.0.0`，OpenAI URL 响应会优先使用请求中的 `Origin` 或 `Host` 推导可访问地址，避免返回不可访问的 `0.0.0.0` 链接。
 
 ### 查看任务队列
 
@@ -551,6 +568,122 @@ Content-Type: multipart/form-data
 
 下载本地归档结果图。
 
+### `GET /api/admin/runtime`
+
+获取运行状态，需要认证。前端“OpenAI 设置”弹窗会调用该接口。
+
+返回字段包括：
+
+| 字段 | 说明 |
+| --- | --- |
+| `host` | 当前配置的监听地址。 |
+| `port` | 当前配置的监听端口。 |
+| `openai_base_url` | OpenAI 兼容接口 Base URL，格式通常为 `<当前来源>/v1`。 |
+| `queue_length` | 活跃队列数量，统计数据库中 `queued` 和 `running` 的子任务。 |
+| `worker_threads` | 后台 worker 数量。 |
+| `log_dir` | 日志目录。 |
+| `app_log` | 应用日志文件路径。 |
+| `audit_log` | 审计日志文件路径。 |
+
+### `POST /api/admin/config`
+
+保存运行配置，需要认证。目前支持修改 `APP_PORT`。
+
+请求示例：
+
+```json
+{
+  "port": 8788
+}
+```
+
+保存成功后会写入 `.env`，并返回 `restart_required` 标识当前进程是否需要重启后才会使用新端口。
+
+### `POST /api/admin/restart`
+
+重启服务，需要认证。接口会先写入审计日志，然后在后台线程中停止 runner、等待已入队任务完成、关闭 HTTP 服务并用当前 Python 命令重新执行进程。
+
+### `GET /api/logs`
+
+读取日志尾部，需要认证。用于前端日志面板。
+
+查询参数：
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `type` | `app` | 日志类型，可选 `app` 或 `audit`。 |
+| `lines` | `120` | 返回最后多少行，范围为 1-500。 |
+
+后端会按块读取日志文件尾部，而不是把整个日志文件载入内存；返回前仍会对敏感内容做脱敏处理。
+
+### OpenAI 兼容接口
+
+以下接口使用 OpenAI 风格路径与 Bearer Token 认证，适合接入支持自定义 OpenAI Base URL 的客户端。Base URL 可在前端“OpenAI 设置”中查看，通常为：
+
+```text
+http://127.0.0.1:8787/v1
+```
+
+鉴权方式：
+
+```http
+Authorization: Bearer <ADMIN_TOKEN>
+```
+
+#### `GET /v1/models`
+
+返回当前支持的模型列表。模型来源与前端模型 schema 一致。
+
+#### `POST /v1/images/generations`
+
+OpenAI 风格文生图接口。请求会被转换为本地任务，进入同一个后台队列，由 BizyAir 上游生成图片。
+
+常用请求字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `model` | 必填，必须是本项目支持的模型名。 |
+| `prompt` | 必填，文本提示词。 |
+| `size` | 可选，OpenAI 风格尺寸，会尽量映射为模型支持的宽高比或分辨率。 |
+| `n` | 可选，部分模型可映射为 `variants`；不支持多变体的模型只接受 `1`。 |
+| `response_format` | 可选，`url` 或 `b64_json`。未指定时按 OpenAI 习惯返回 `b64_json`。 |
+
+示例：
+
+```bash
+ADMIN_TOKEN="replace-with-your-admin-token"
+curl -X POST http://127.0.0.1:8787/v1/images/generations \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-image-2","prompt":"一只橘猫坐在窗边","response_format":"url"}'
+```
+
+#### `POST /v1/images/edits`
+
+OpenAI 风格图生图/编辑接口，使用 `multipart/form-data` 上传图片。上传图片会先转存到 BizyAir 输入资源，再进入本地任务队列。
+
+常用表单字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `model` | 必填，必须是本项目支持的模型名。 |
+| `prompt` | 必填，文本提示词。 |
+| `image` | 必填，可传一张或多张图片。 |
+| `size` | 可选，OpenAI 风格尺寸映射。 |
+| `n` | 可选，部分模型可映射为 `variants`。 |
+| `response_format` | 可选，`url` 或 `b64_json`。 |
+
+#### `POST /v1/chat/completions`
+
+OpenAI 风格 Chat Completions 接口。该接口用于兼容把图片生成能力包装成对话请求的客户端：服务会从 `messages` 中提取文本和图片 URL，转换成 BizyAir 生图任务，完成后返回包含图片 Markdown 链接的 assistant 消息。
+
+限制：
+
+- 不支持 `stream=true`。
+- `messages` 必须是数组。
+- 文本内容会合并为提示词。
+- 图片输入会从 OpenAI 多模态消息结构中提取 URL。
+
 ### `DELETE /api/images/{image_id}`
 
 删除本地归档结果图，需要认证。
@@ -638,6 +771,10 @@ logs/app.log
 ```
 
 记录服务启动、HTTP 请求、后台任务、上游轮询、异常等信息。
+
+如果临时开启 `DEBUG_REQUESTS=1`，还会记录请求头、请求体和 JSON 响应内容。该模式可能包含提示词、图片 URL、Token 或其他敏感信息，也会显著增加日志体积；排障完成后应改回 `DEBUG_REQUESTS=0` 并重启服务。
+
+前端日志面板通过 `/api/logs` 读取日志尾部。后端按块读取最后若干行，避免大日志文件被完整读入内存。
 
 ### 审计日志
 

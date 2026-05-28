@@ -141,6 +141,18 @@ class Database:
             ).fetchall()
         return [row["id"] for row in rows]
 
+    def active_queue_size(self) -> int:
+        with self.lock, self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM job_items
+                JOIN jobs ON jobs.id = job_items.job_id
+                WHERE job_items.status IN ('queued', 'running') AND jobs.cancel_requested = 0
+                """
+            ).fetchone()
+        return int(row["count"] or 0) if row else 0
+
     def get_item_for_processing(self, item_id: str) -> dict:
         with self.lock, self.connect() as conn:
             row = conn.execute(

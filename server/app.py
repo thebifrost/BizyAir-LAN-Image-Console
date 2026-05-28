@@ -39,5 +39,5 @@ def main() -> None:
     except KeyboardInterrupt:
         logger.info("收到停止信号，正在退出")
     finally:
-        runner.stop_event.set()
+        runner.stop()
         server.server_close()

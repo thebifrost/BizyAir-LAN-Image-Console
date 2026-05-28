@@ -57,6 +57,8 @@
       let pendingDeleteImageRecord = null;
       let hoverPreviewToken = 0;
       let toastTimer = null;
+      let runtimeRefreshTimer = null;
+      let lastSeenJobIds = new Set();
 
       const $ = (id) => document.getElementById(id);
       const modelEl = $("model");

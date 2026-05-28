@@ -14,11 +14,18 @@
         $("randomSeed").addEventListener("click", () => setSeedValue(Math.floor(Math.random() * 2147483648)));
         $("resetSeed").addEventListener("click", () => setSeedValue(0));
 
+        $("openRuntimeSettings").addEventListener("click", () => { $("runtimeDialog").showModal(); refreshRuntime(false); });
+        $("closeRuntimeSettings").addEventListener("click", () => $("runtimeDialog").close());
         $("openAuth").addEventListener("click", () => { $("tokenInput").value = authToken; $("authDialog").showModal(); });
         $("closeAuth").addEventListener("click", () => $("authDialog").close());
         $("saveToken").addEventListener("click", saveAccessToken);
         $("clearToken").addEventListener("click", clearAccessToken);
         $("refreshAccount").addEventListener("click", () => refreshAccountInfo(true));
+        $("refreshRuntime").addEventListener("click", () => refreshRuntime(true));
+        $("saveRuntimePort").addEventListener("click", saveRuntimePort);
+        $("restartServer").addEventListener("click", restartServer);
+        $("loadAppLog").addEventListener("click", () => loadServerLog("app"));
+        $("loadAuditLog").addEventListener("click", () => loadServerLog("audit"));
         $("refreshJobs").addEventListener("click", loadGateway);
         $("mainImageFiles").addEventListener("change", (event) => uploadFilesToRole(event.target.files, "main"));
         $("referenceImageFiles").addEventListener("change", (event) => uploadFilesToRole(event.target.files, "reference"));

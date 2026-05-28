@@ -637,6 +637,18 @@
       .sidebar-section { overflow: hidden; }
       .sidebar-section + .sidebar-section { border-top: 2px solid var(--ink); }
 
+      .runtime-dialog .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .runtime-dialog .modal-head .secondary { min-height: 34px; padding: 0 12px; font-size: 12px; }
+      .runtime-body { display: grid; gap: 14px; }
+      .runtime-line { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 13px; color: var(--muted); }
+      .runtime-line code, .runtime-line strong { min-width: 0; overflow-wrap: anywhere; color: var(--ink); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+      .runtime-port-row { display: grid; grid-template-columns: auto minmax(90px, 1fr) auto auto; gap: 8px; align-items: center; }
+      .runtime-port-row label { font-size: 13px; }
+      .runtime-port-row input { min-height: 38px; border-radius: var(--radius-xs); font-size: 13px; }
+      .runtime-port-row .secondary, .runtime-actions .secondary { min-height: 38px; padding: 0 12px; font-size: 13px; }
+      .runtime-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      #runtimeHint { color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
+
       .sidebar-head {
         display: flex;
         align-items: center;
@@ -889,7 +901,7 @@
       }
       .log-entry {
         display: grid;
-        grid-template-columns: 66px 72px 1fr;
+        grid-template-columns: 66px 72px minmax(0, 1fr);
         gap: 8px;
         align-items: start;
         padding: 8px 10px;
@@ -901,6 +913,7 @@
       }
       @keyframes logSlideIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
       .log-entry:hover { background: rgba(255, 255, 255, 0.62); }
+      .log-entry span:last-child { overflow-wrap: anywhere; }
       .log-time { color: var(--muted); font-variant-numeric: tabular-nums; }
       .log-level { font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
       .log-entry.info .log-level { color: var(--blue); }

@@ -12,6 +12,7 @@
         <div class="brand"><div class="mark">LAN</div><span>BizyAir LAN Image Console by Bifrost</span></div>
         <div class="nav-actions">
           <span class="pill" id="gatewayStatus">待认证</span>
+          <button class="pill" id="openRuntimeSettings" type="button">OpenAI 设置</button>
           <button class="pill" id="openAuth">访问口令</button>
           <button class="pill" id="refreshJobs">刷新历史</button>
         </div>
@@ -177,6 +178,31 @@
         </div>
       </section>
     </main>
+
+    <dialog id="runtimeDialog" class="runtime-dialog">
+      <div class="modal-head">
+        <h3>OpenAI 设置</h3>
+        <button class="secondary" id="refreshRuntime" type="button">刷新</button>
+      </div>
+      <div class="modal-body runtime-body">
+        <div class="runtime-line"><span>Base URL</span><code id="openaiBaseUrl">--</code></div>
+        <div class="runtime-line"><span>队列</span><strong id="runtimeQueueLength">--</strong></div>
+        <div class="runtime-port-row">
+          <label for="runtimePort">端口</label>
+          <input id="runtimePort" type="number" min="1" max="65535" placeholder="8787" />
+          <button class="secondary" id="saveRuntimePort" type="button">保存</button>
+          <button class="secondary danger" id="restartServer" type="button">重启</button>
+        </div>
+        <div class="runtime-actions">
+          <button class="secondary" id="loadAppLog" type="button">刷新应用日志</button>
+          <button class="secondary" id="loadAuditLog" type="button">刷新审计日志</button>
+        </div>
+        <small id="runtimeHint">修改端口后需要重启服务生效。</small>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary" id="closeRuntimeSettings" type="button">关闭</button>
+      </div>
+    </dialog>
 
     <dialog id="authDialog">
       <div class="modal-head"><h3>局域网访问口令</h3></div>

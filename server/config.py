@@ -49,6 +49,7 @@ class AppConfig:
     image_cache_ttl_seconds: float
     image_cache_total_bytes: int
     worker_threads: int
+    debug_requests: bool
 
     @property
     def bizyair_api_key(self) -> str:
@@ -128,6 +129,25 @@ def load_bizyair_keys() -> tuple[BizyAirKeyConfig, ...]:
     return tuple(configs)
 
 
+def update_env_value(name: str, value: str) -> None:
+    env_path = PROJECT_ROOT / ".env"
+    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.is_file() else []
+    replacement = f"{name}={value}"
+    updated = False
+    for index, raw_line in enumerate(lines):
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _old_value = stripped.split("=", 1)
+        if key.strip() == name:
+            lines[index] = replacement
+            updated = True
+            break
+    if not updated:
+        lines.append(replacement)
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def load_config() -> AppConfig:
     load_dotenv()
     host = os.getenv("APP_HOST", "127.0.0.1").strip() or "127.0.0.1"
@@ -162,4 +182,5 @@ def load_config() -> AppConfig:
         image_cache_ttl_seconds=env_float("IMAGE_CACHE_TTL_HOURS", 168, 1) * 3600,
         image_cache_total_bytes=env_int("IMAGE_CACHE_TOTAL_MB", 2048, 1) * 1024 * 1024,
         worker_threads=env_int("WORKER_THREADS", 32, 1),
+        debug_requests=os.getenv("DEBUG_REQUESTS", "").strip().lower() in {"1", "true", "yes", "on"},
     )
