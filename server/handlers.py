@@ -945,5 +945,11 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
     def _json_response(response: requests.Response) -> dict:
         return UpstreamClient.json_response(response)
 
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        path = urlparse(self.path).path
+        if int(code) == 200 and path in {"/api/admin/runtime", "/api/jobs"}:
+            return
+        super().log_request(code, size)
+
     def log_message(self, fmt: str, *args) -> None:
         self.server.logger.info("%s - %s", self.address_string(), fmt % args)

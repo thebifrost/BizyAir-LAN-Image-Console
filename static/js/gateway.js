@@ -88,11 +88,20 @@
         lastSeenJobIds = new Set(jobs.map((job) => job.id).filter(Boolean));
       }
 
+      function hasActiveTasks() {
+        return submittedTasks.some((task) => !TERMINAL_STATUSES.includes(task.status)) || pollingJobs.size > 0;
+      }
+
+      function runtimeRefreshDelay() {
+        return hasActiveTasks() ? Math.max(pollInterval, 3000) : Math.max(IDLE_RUNTIME_REFRESH_INTERVAL, pollInterval);
+      }
+
       function startRuntimeRefresh() {
-        clearInterval(runtimeRefreshTimer);
-        runtimeRefreshTimer = setInterval(() => {
-          if (authToken) refreshRuntime(false);
-        }, Math.max(pollInterval, 3000));
+        clearTimeout(runtimeRefreshTimer);
+        runtimeRefreshTimer = setTimeout(async () => {
+          if (authToken) await refreshRuntime(false);
+          startRuntimeRefresh();
+        }, runtimeRefreshDelay());
       }
 
       async function saveRuntimePort() {

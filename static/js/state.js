@@ -2,6 +2,7 @@
       const CONFIG_STORAGE_KEY = "bizyair-task-config";
       const HISTORY_VIEW_STORAGE_KEY = "bizyair-history-view";
       const DEFAULT_POLL_INTERVAL = 5000;
+      const IDLE_RUNTIME_REFRESH_INTERVAL = 30000;
       const MAX_INPUT_IMAGES = 10;
       const DEFAULT_MAX_UPLOAD_MB = 20;
       const TERMINAL_STATUSES = ["succeeded", "failed", "cancelled"];
