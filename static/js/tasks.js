@@ -297,7 +297,11 @@
         const list = $("taskList");
         const queued = submittedTasks.filter((task) => task.status === "queued").length;
         const running = submittedTasks.filter((task) => task.status === "running").length;
+        const failedTasks = getRetryableFailedTasks();
         $("taskCount").textContent = `${submittedTasks.length} 个任务 · 排队 ${queued} · 生成中 ${running}`;
+        $("retryFailedTasks").hidden = failedTasks.length === 0;
+        $("retryFailedTasks").disabled = retryingAllFailedTasks || failedTasks.every((task) => retryingTaskIds.has(task.id));
+        $("retryFailedTasks").textContent = retryingAllFailedTasks || failedTasks.some((task) => retryingTaskIds.has(task.id)) ? "重试中" : `重试失败 ${failedTasks.length}`;
         $("taskQueueSection").classList.toggle("is-collapsed", taskQueueCollapsed);
         $("taskQueueSection").closest(".sidebar")?.classList.toggle("is-task-queue-collapsed", taskQueueCollapsed);
         $("toggleTaskQueue").textContent = taskQueueCollapsed ? "展开" : "折叠";
@@ -341,6 +345,33 @@
         renderTaskQueue();
       }
 
+      function getRetryableFailedTasks() {
+        return submittedTasks.filter((task) => task.status === "failed");
+      }
+
+      async function retryAllFailedTasks() {
+        if (retryingAllFailedTasks) return;
+        const tasks = getRetryableFailedTasks().filter((task) => !retryingTaskIds.has(task.id));
+        if (!tasks.length) { toast("没有可重试的失败任务。"); return; }
+        retryingAllFailedTasks = true;
+        renderTaskQueue();
+        log(`开始批量重试 ${tasks.length} 个失败任务。`, "warn");
+        let succeeded = 0;
+        try {
+          for (const task of tasks) {
+            const retry = await retryTask(task.id, { silent: true });
+            if (retry) succeeded += 1;
+          }
+          const failed = tasks.length - succeeded;
+          const message = failed ? `批量重试完成：成功 ${succeeded}，失败 ${failed}。` : `已批量重试 ${succeeded} 个失败任务。`;
+          toast(message);
+          log(message, failed ? "warn" : "success");
+        } finally {
+          retryingAllFailedTasks = false;
+          renderTaskQueue();
+        }
+      }
+
       function taskCardMarkup(task) {
         const promptShort = task.prompt.length > 58 ? task.prompt.slice(0, 58) + "..." : task.prompt;
         const status = statusLabel(task.status);
@@ -363,6 +394,7 @@
 
       async function retryTask(taskId, options = {}) {
         const automatic = Boolean(options.automatic);
+        const silent = Boolean(options.silent);
         const task = submittedTasks.find((item) => item.id === taskId);
         if (!task || retryingTaskIds.has(taskId)) return null;
         retryingTaskIds.add(taskId);
@@ -387,10 +419,10 @@
           renderTaskLargePreview();
           pollJob(retry.id);
           if (automatic) log(`任务 ${task.id.slice(0, 8)} 自动重试 ${retryAttempt}/${task.autoRetryMaxAttempts}。`, "warn");
-          else toast("已在原队列中重新提交失败任务。");
+          else if (!silent) toast("已在原队列中重新提交失败任务。");
           return retry;
         } catch (error) {
-          if (!automatic) toast(error.message);
+          if (!automatic && !silent) toast(error.message);
           log(`${automatic ? "自动重试" : "重试"}失败：${error.message}`, "error");
           return null;
         } finally {

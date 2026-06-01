@@ -52,6 +52,7 @@
         $("submitJobs").addEventListener("click", runSingleTask);
         $("batchSubmitJobs").addEventListener("click", runBatchTasks);
         $("stopJobs").addEventListener("click", stopActiveJob);
+        $("retryFailedTasks").addEventListener("click", retryAllFailedTasks);
         $("toggleTaskQueue").addEventListener("click", toggleTaskQueue);
         $("historyPageSize").addEventListener("change", () => {
           historyPageSize = Number($("historyPageSize").value) || 24;

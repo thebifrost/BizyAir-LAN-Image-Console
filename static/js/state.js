@@ -46,6 +46,7 @@
       let historyModelFilter = "";
       let historySort = "newest";
       let retryingTaskIds = new Set();
+      let retryingAllFailedTasks = false;
       let autoRetryingTaskIds = new Set();
       let autoRetryEnabled = true;
       let autoRetryMaxAttempts = 2;

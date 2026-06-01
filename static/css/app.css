@@ -599,6 +599,20 @@
         animation: pulse 1s ease-in-out infinite;
       }
       .task-head-actions { display: flex; gap: 8px; align-items: center; }
+      .task-retry-all {
+        min-height: 32px;
+        padding: 0 12px;
+        border: 1px solid rgba(180, 35, 24, 0.32);
+        border-radius: 999px;
+        color: var(--red);
+        background: rgba(255,255,255,0.72);
+        font-size: 12px;
+        font-weight: 900;
+        cursor: pointer;
+        transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+      }
+      .task-retry-all:hover:not(:disabled) { background: rgba(180, 35, 24, 0.08); border-color: var(--red); transform: translateY(-1px); }
+      .task-retry-all:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
       .task-retry, .task-load-params {
         min-height: 24px;
         padding: 0 10px;
