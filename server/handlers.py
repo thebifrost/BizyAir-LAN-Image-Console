@@ -581,7 +581,11 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
 
     def _upload_edit_images(self, image_files: list[dict]) -> list[str]:
         key = self.server.runner.key_pool.pick()
-        client = BizyUpImage(api_key=key.api_key)
+        client = BizyUpImage(
+            api_key=key.api_key,
+            retry_attempts=self.server.config.upload_retry_attempts,
+            retry_delay_seconds=self.server.config.upload_retry_delay_seconds,
+        )
         urls: list[str] = []
         for item in image_files:
             suffix = self._image_suffix(item)

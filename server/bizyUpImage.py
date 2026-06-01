@@ -36,7 +36,7 @@ class BizyUpImage:
         if not self.api_key:
             raise ValueError("api_key 不能为空，请传入参数或设置环境变量 BIZYAIR_API_KEY")
         self.timeout = timeout
-        self.retry_attempts = max(0, retry_attempts)
+        self.retry_attempts = max(1, retry_attempts)
         self.retry_delay_seconds = max(0, retry_delay_seconds)
 
     def upload(self, file_path: str, file_type: str = "inputs", file_name: Optional[str] = None) -> dict:
@@ -130,7 +130,7 @@ class BizyUpImage:
                 return operation()
             except Exception as exc:
                 if attempt >= total_attempts:
-                    raise
+                    raise RuntimeError(f"{label} 已尝试 {total_attempts} 次仍失败: {exc}") from exc
                 logger.warning("%s 失败，%.1f 秒后重试 %s/%s: %s", label, self.retry_delay_seconds, attempt + 1, total_attempts, exc)
                 if self.retry_delay_seconds:
                     time.sleep(self.retry_delay_seconds)
