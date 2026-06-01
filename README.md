@@ -237,6 +237,8 @@ http://127.0.0.1:8787
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `MAX_UPLOAD_MB` | `20` | 单个上传文件大小上限，代码内硬上限为 20 MB。 |
+| `UPLOAD_RETRY_ATTEMPTS` | `2` | 上传失败后额外重试次数，`0` 表示不重试。 |
+| `UPLOAD_RETRY_DELAY_SECONDS` | `1` | 上传失败后每次重试前等待秒数。 |
 | `DATA_DIR` | `./data` | SQLite 数据库与结果图片目录。 |
 | `LOG_DIR` | `./logs` | 日志目录。 |
 | `RESULT_IMAGE_DIR` | `DATA_DIR/result-images` | 生成结果图本地归档目录。 |

@@ -43,6 +43,8 @@ class AppConfig:
     poll_interval_seconds: float
     max_poll_seconds: float
     max_upload_bytes: int
+    upload_retry_attempts: int
+    upload_retry_delay_seconds: float
     image_cache_dir: Path
     result_image_dir: Path
     image_cache_max_bytes: int
@@ -176,6 +178,8 @@ def load_config() -> AppConfig:
         poll_interval_seconds=env_float("POLL_INTERVAL_SECONDS", 5, 0.5),
         max_poll_seconds=env_float("MAX_POLL_SECONDS", 1800, 30),
         max_upload_bytes=min(env_int("MAX_UPLOAD_MB", 20, 1) * 1024 * 1024, MAX_UPLOAD_BYTES),
+        upload_retry_attempts=env_int("UPLOAD_RETRY_ATTEMPTS", 2, 0),
+        upload_retry_delay_seconds=env_float("UPLOAD_RETRY_DELAY_SECONDS", 1, 0),
         image_cache_dir=image_cache_dir,
         result_image_dir=result_image_dir,
         image_cache_max_bytes=env_int("IMAGE_CACHE_MAX_MB", 50, 1) * 1024 * 1024,

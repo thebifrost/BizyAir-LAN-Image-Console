@@ -1,13 +1,15 @@
 import logging
 import os
+import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional, TypeVar
 
 import alibabacloud_oss_v2 as oss
 import requests
 from alibabacloud_oss_v2.credentials import StaticCredentialsProvider
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 
 @dataclass
@@ -29,11 +31,13 @@ class BizyUpImage:
     DEFAULT_BUCKET = "bizyair-prod"
     DEFAULT_REGION = "oss-cn-shanghai"
 
-    def __init__(self, api_key: Optional[str] = None, timeout: int = 30) -> None:
+    def __init__(self, api_key: Optional[str] = None, timeout: int = 30, retry_attempts: int = 2, retry_delay_seconds: float = 1) -> None:
         self.api_key = api_key or os.getenv("BIZYAIR_API_KEY") or os.getenv("APIKEY", "")
         if not self.api_key:
             raise ValueError("api_key 不能为空，请传入参数或设置环境变量 BIZYAIR_API_KEY")
         self.timeout = timeout
+        self.retry_attempts = max(0, retry_attempts)
+        self.retry_delay_seconds = max(0, retry_delay_seconds)
 
     def upload(self, file_path: str, file_type: str = "inputs", file_name: Optional[str] = None) -> dict:
         file_path = os.path.abspath(file_path)
@@ -41,6 +45,9 @@ class BizyUpImage:
             raise FileNotFoundError(f"找不到本地文件: {file_path}")
 
         file_name = file_name or os.path.basename(file_path)
+        return self._with_retry(lambda: self._upload_once(file_path, file_type, file_name), f"上传 {file_name}")
+
+    def _upload_once(self, file_path: str, file_type: str, file_name: str) -> dict:
         logger.info("请求 BizyAir 上传凭证: %s", file_name)
         file_info = self._get_token(file_name, file_type)
 
@@ -115,6 +122,19 @@ class BizyUpImage:
 
     def _auth_headers(self) -> dict:
         return {"Authorization": f"Bearer {self.api_key}"}
+
+    def _with_retry(self, operation: Callable[[], T], label: str) -> T:
+        total_attempts = self.retry_attempts + 1
+        for attempt in range(1, total_attempts + 1):
+            try:
+                return operation()
+            except Exception as exc:
+                if attempt >= total_attempts:
+                    raise
+                logger.warning("%s 失败，%.1f 秒后重试 %s/%s: %s", label, self.retry_delay_seconds, attempt + 1, total_attempts, exc)
+                if self.retry_delay_seconds:
+                    time.sleep(self.retry_delay_seconds)
+        raise RuntimeError(f"{label} 失败")
 
     @staticmethod
     def _raise_for(resp: requests.Response, msg: str) -> None:
