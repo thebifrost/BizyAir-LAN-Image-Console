@@ -1,6 +1,9 @@
       const TOKEN_STORAGE_KEY = "bizyair-lan-admin-token";
       const CONFIG_STORAGE_KEY = "bizyair-task-config";
       const HISTORY_VIEW_STORAGE_KEY = "bizyair-history-view";
+      const UPLOAD_RETRY_DB_NAME = "bizyair-upload-retry";
+      const UPLOAD_RETRY_DB_VERSION = 1;
+      const UPLOAD_RETRY_STORE = "failedUploads";
       const DEFAULT_POLL_INTERVAL = 5000;
       const IDLE_RUNTIME_REFRESH_INTERVAL = 30000;
       const MAX_INPUT_IMAGES = 10;
@@ -35,6 +38,7 @@
       let selectedMainImageUrls = [];
       let selectedReferenceUrls = [];
       let pendingUploadPreviews = { main: [], reference: [] };
+      let queuedUploadPreviews = { main: [], reference: [] };
       let nextMainImageIndex = 0;
       let submittedTasks = [];
       let historyImageUrls = new Set();
@@ -46,6 +50,7 @@
       let historyModelFilter = "";
       let historySort = "newest";
       let retryingTaskIds = new Set();
+      let retryingQueuedUploadIds = new Set();
       let retryingAllFailedTasks = false;
       let autoRetryingTaskIds = new Set();
       let autoRetryEnabled = true;

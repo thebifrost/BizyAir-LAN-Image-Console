@@ -6,6 +6,7 @@
         renderAuthState();
         wireEvents();
         restoreConfig();
+        await initUploadRetryQueue();
         $("tokenInput").value = authToken;
         if (!authToken) {
           $("authDialog").showModal();

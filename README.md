@@ -620,6 +620,8 @@ Content-Type: multipart/form-data
 
 ### OpenAI 兼容接口
 
+独立接入文档见 [OPENAI_API.md](OPENAI_API.md)。
+
 以下接口使用 OpenAI 风格路径与 Bearer Token 认证，适合接入支持自定义 OpenAI Base URL 的客户端。Base URL 可在前端“OpenAI 设置”中查看，通常为：
 
 ```text

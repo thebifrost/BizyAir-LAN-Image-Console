@@ -15,6 +15,136 @@
         updateSubmitHint();
       }
 
+      function openUploadRetryDb() {
+        return new Promise((resolve, reject) => {
+          if (!window.indexedDB) {
+            reject(new Error("浏览器不支持本地上传队列"));
+            return;
+          }
+          const request = indexedDB.open(UPLOAD_RETRY_DB_NAME, UPLOAD_RETRY_DB_VERSION);
+          request.onupgradeneeded = () => {
+            const db = request.result;
+            if (!db.objectStoreNames.contains(UPLOAD_RETRY_STORE)) {
+              const store = db.createObjectStore(UPLOAD_RETRY_STORE, { keyPath: "id" });
+              store.createIndex("role", "role", { unique: false });
+              store.createIndex("createdAt", "createdAt", { unique: false });
+            }
+          };
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error || new Error("打开本地上传队列失败"));
+        });
+      }
+
+      function uploadRetryTransaction(mode, callback) {
+        return openUploadRetryDb().then((db) => new Promise((resolve, reject) => {
+          const transaction = db.transaction(UPLOAD_RETRY_STORE, mode);
+          const store = transaction.objectStore(UPLOAD_RETRY_STORE);
+          let result;
+          transaction.oncomplete = () => { db.close(); resolve(result); };
+          transaction.onerror = () => { db.close(); reject(transaction.error || new Error("本地上传队列操作失败")); };
+          transaction.onabort = () => { db.close(); reject(transaction.error || new Error("本地上传队列操作已取消")); };
+          result = callback(store);
+        }));
+      }
+
+      function requestToPromise(request) {
+        return new Promise((resolve, reject) => {
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error || new Error("本地上传队列请求失败"));
+        });
+      }
+
+      async function initUploadRetryQueue() {
+        try {
+          await loadUploadRetryQueue();
+        } catch (error) {
+          log(`加载本地上传队列失败：${error.message}`, "warn");
+        }
+      }
+
+      async function loadUploadRetryQueue() {
+        revokeQueuedUploadUrls();
+        queuedUploadPreviews = { main: [], reference: [] };
+        const records = await uploadRetryTransaction("readonly", (store) => requestToPromise(store.getAll()));
+        records.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+        records.forEach((record) => addQueuedUploadPreview(record));
+        refreshImageSelectors();
+      }
+
+      function addQueuedUploadPreview(record) {
+        const role = record.role === "main" ? "main" : "reference";
+        queuedUploadPreviews[role].push({
+          id: record.id,
+          role,
+          name: record.name,
+          type: record.type,
+          size: record.size,
+          lastError: record.lastError,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+          src: URL.createObjectURL(record.blob),
+        });
+      }
+
+      function revokeQueuedUploadUrls() {
+        Object.values(queuedUploadPreviews).flat().forEach((item) => {
+          if (item.src) URL.revokeObjectURL(item.src);
+        });
+      }
+
+      async function enqueueFailedUpload(file, role, error) {
+        const now = Date.now();
+        const record = {
+          id: `${now}-${Math.random().toString(36).slice(2)}`,
+          role,
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          lastError: error?.message || String(error || "上传失败"),
+          createdAt: now,
+          updatedAt: now,
+          blob: file,
+        };
+        await uploadRetryTransaction("readwrite", (store) => store.put(record));
+        addQueuedUploadPreview(record);
+        log(`${file.name} 已加入本地待重试上传队列。`, "warn");
+        return record;
+      }
+
+      async function getQueuedUpload(id) {
+        return uploadRetryTransaction("readonly", (store) => requestToPromise(store.get(id)));
+      }
+
+      async function updateQueuedUploadError(id, error) {
+        const record = await getQueuedUpload(id);
+        if (!record) return;
+        record.lastError = error?.message || String(error || "上传失败");
+        record.updatedAt = Date.now();
+        await uploadRetryTransaction("readwrite", (store) => store.put(record));
+        const item = findQueuedUploadPreview(id);
+        if (item) {
+          item.lastError = record.lastError;
+          item.updatedAt = record.updatedAt;
+        }
+      }
+
+      async function deleteQueuedUpload(id) {
+        await uploadRetryTransaction("readwrite", (store) => store.delete(id));
+        removeQueuedUploadPreview(id);
+      }
+
+      function findQueuedUploadPreview(id) {
+        return [...queuedUploadPreviews.main, ...queuedUploadPreviews.reference].find((item) => item.id === id);
+      }
+
+      function removeQueuedUploadPreview(id) {
+        ["main", "reference"].forEach((role) => {
+          const item = queuedUploadPreviews[role].find((current) => current.id === id);
+          if (item?.src) URL.revokeObjectURL(item.src);
+          queuedUploadPreviews[role] = queuedUploadPreviews[role].filter((current) => current.id !== id);
+        });
+      }
+
       function sanitizeImageSelections() {
         const urls = getInputUrls();
         uploadedImageUrls = [...new Set(uploadedImageUrls.filter((url) => urls.includes(url)) || [])];
@@ -44,13 +174,30 @@
         const preview = $(elementId);
         const emptyText = role === "main" ? "暂无主图。拖入图片或选择历史上传。" : "暂无参考图。拖入图片或选择历史上传。";
         const pending = pendingUploadPreviews[role] || [];
-        const cards = [...pending.map((item) => pendingUploadCardMarkup(item, role)), ...urls.map((url, index) => imageBoxCardMarkup(url, role, index))];
+        const queued = queuedUploadPreviews[role] || [];
+        const cards = [
+          ...pending.map((item) => pendingUploadCardMarkup(item, role)),
+          ...queued.map((item) => queuedUploadCardMarkup(item, role)),
+          ...urls.map((url, index) => imageBoxCardMarkup(url, role, index)),
+        ];
         preview.innerHTML = cards.length ? cards.join("") : `<div class="hint">${emptyText}</div>`;
         wireCachedImageFallbacks(preview);
-        preview.querySelectorAll(".remove-image").forEach((button) => {
+        preview.querySelectorAll(".remove-image:not(.remove-queued-upload)").forEach((button) => {
           button.addEventListener("click", (event) => {
             event.stopPropagation();
             removeImageFromRole(button.dataset.role, button.dataset.url);
+          });
+        });
+        preview.querySelectorAll(".retry-upload").forEach((button) => {
+          button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            retryQueuedUpload(button.dataset.queueId, button.dataset.role);
+          });
+        });
+        preview.querySelectorAll(".remove-queued-upload").forEach((button) => {
+          button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            removeQueuedUpload(button.dataset.queueId);
           });
         });
         preview.querySelectorAll(".preview-card.has-remove[data-url]").forEach((card) => {
@@ -111,6 +258,12 @@
 
       function pendingUploadCardMarkup(item, role) {
         return `<div class="preview-card is-uploading is-disabled"><img src="${escapeAttribute(item.src)}" alt="${role === "main" ? "主图上传中" : "参考图上传中"}" decoding="async" width="180" height="100" /><div class="uploading-badge">上传中</div><span>${escapeHtml(item.name)}</span></div>`;
+      }
+
+      function queuedUploadCardMarkup(item, role) {
+        const retrying = retryingQueuedUploadIds.has(item.id);
+        const label = retrying ? "重试中" : "待重试";
+        return `<div class="preview-card is-upload-failed ${retrying ? "is-uploading" : ""}" data-queue-id="${escapeAttribute(item.id)}"><img src="${escapeAttribute(item.src)}" alt="${role === "main" ? "主图待重试" : "参考图待重试"}" decoding="async" width="180" height="100" /><div class="failed-upload-badge">${label}</div><button class="remove-image remove-queued-upload" type="button" data-queue-id="${escapeAttribute(item.id)}" aria-label="移除待重试图片"></button><button class="retry-upload" type="button" data-role="${role}" data-queue-id="${escapeAttribute(item.id)}" ${retrying ? "disabled" : ""}>重试</button><span title="${escapeAttribute(item.lastError || "上传失败")}">${escapeHtml(item.name)}</span></div>`;
       }
 
       function addImagesToRole(role, urls, options = {}) {
@@ -186,7 +339,18 @@
             }
           }));
           const uploadedUrls = uploadResults.map((result) => result.url).filter(Boolean);
-          const failedCount = uploadResults.filter((result) => result.error || !result.url).length;
+          const failedResults = uploadResults.filter((result) => result.error || !result.url);
+          const queuedResults = await Promise.all(failedResults.map(async (result) => {
+            const error = result.error || new Error("上传成功但未能解析出图片 URL");
+            try {
+              await enqueueFailedUpload(result.file, role, error);
+              return result;
+            } catch (queueError) {
+              log(`${result.file.name} 保存到本地待重试队列失败：${queueError.message}`, "error");
+              return null;
+            }
+          }));
+          const queuedCount = queuedResults.filter(Boolean).length;
           await preloadImages(uploadedUrls);
           pendingUploadPreviews[role] = pendingUploadPreviews[role].filter((item) => !pending.some((current) => current.id === item.id));
           addImagesToRole(role, uploadedUrls, { refresh: false, save: false });
@@ -194,9 +358,10 @@
           pending.forEach((item) => URL.revokeObjectURL(item.src));
           saveConfig();
           await refreshInputsList(false, { refresh: false, save: true });
-          if (uploadedUrls.length && failedCount) toast(`${role === "main" ? "主图" : "参考图"}部分上传成功：成功 ${uploadedUrls.length}，失败 ${failedCount}。`);
+          if (uploadedUrls.length && failedResults.length) toast(`${role === "main" ? "主图" : "参考图"}部分上传成功：成功 ${uploadedUrls.length}，失败 ${failedResults.length}${queuedCount ? "，失败文件已加入本地待重试队列" : ""}。`);
           else if (uploadedUrls.length) toast(`${role === "main" ? "主图" : "参考图"}上传完成。`);
-          else toast("上传失败，请查看日志。");
+          else if (queuedCount) toast("上传失败，文件已加入本地待重试队列。");
+          else toast("上传失败，且本地待重试保存失败，请查看日志。");
         } catch (error) {
           pendingUploadPreviews[role] = pendingUploadPreviews[role].filter((item) => !pending.some((current) => current.id === item.id));
           pending.forEach((item) => URL.revokeObjectURL(item.src));
@@ -331,6 +496,49 @@
           else addImagesToRole("reference", [url]);
         }
         renderHistoricalPicker();
+      }
+
+      async function retryQueuedUpload(id, role) {
+        if (!id || retryingQueuedUploadIds.has(id)) return;
+        retryingQueuedUploadIds.add(id);
+        refreshImageSelectors();
+        try {
+          const record = await getQueuedUpload(id);
+          if (!record) throw new Error("待重试文件不存在");
+          const file = new File([record.blob], record.name, { type: record.type || "application/octet-stream", lastModified: record.updatedAt || Date.now() });
+          log(`开始重试上传 ${record.name}。`, "info");
+          const data = await uploadFile(file);
+          const url = extractInputUrl(data);
+          if (!url) throw new Error("上传成功但未能解析出图片 URL");
+          await preloadImages([url]);
+          await deleteQueuedUpload(id);
+          addImagesToRole(role, [url], { refresh: false, save: false });
+          refreshImageSelectors();
+          saveConfig();
+          await refreshInputsList(false, { refresh: false, save: true });
+          log(`重试上传完成 ${record.name}：${url}`, "success");
+          toast(`${record.name} 重试上传成功。`);
+        } catch (error) {
+          await updateQueuedUploadError(id, error);
+          refreshImageSelectors();
+          log(`重试上传失败：${error.message}`, "error");
+          toast("重试上传失败，文件仍保留在本地待重试队列。");
+        } finally {
+          retryingQueuedUploadIds.delete(id);
+          refreshImageSelectors();
+        }
+      }
+
+      async function removeQueuedUpload(id) {
+        if (!id) return;
+        try {
+          await deleteQueuedUpload(id);
+          refreshImageSelectors();
+          toast("已移除待重试上传。");
+        } catch (error) {
+          log(`移除待重试上传失败：${error.message}`, "error");
+          toast("移除待重试上传失败。");
+        }
       }
 
       async function uploadFile(file) {
