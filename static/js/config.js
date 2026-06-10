@@ -7,6 +7,9 @@
           resolution: $("resolution").value,
           quality: $("quality").value,
           variants: $("variants").value,
+          outputFormat: $("outputFormat").value,
+          outputCompression: $("outputCompression").value,
+          moderation: $("moderation").value,
           seed: $("seed").value,
           temperature: $("temperature").value,
           topP: $("topP").value,
@@ -44,6 +47,10 @@
         setSelectValue("aspectRatio", config.aspectRatio);
         setSelectValue("quality", config.quality);
         setSelectValue("variants", config.variants);
+        setSelectValue("outputFormat", config.outputFormat);
+        if ("outputCompression" in config) $("outputCompression").value = config.outputCompression;
+        setSelectValue("moderation", config.moderation);
+        updateModelFields(false);
         if ("seed" in config) $("seed").value = config.seed;
         if ("temperature" in config) syncRangeValue("temperature", "temperatureNumber", "temperatureValue", config.temperature);
         if ("topP" in config) syncRangeValue("topP", "topPNumber", "topPValue", config.topP);

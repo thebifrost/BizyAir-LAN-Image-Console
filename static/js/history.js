@@ -139,6 +139,10 @@
         setSelectValue("aspectRatio", params.aspect_ratio);
         setSelectValue("quality", params.quality);
         setSelectValue("variants", params.variants);
+        setSelectValue("outputFormat", params.output_format);
+        if ("output_compression" in params) $("outputCompression").value = params.output_compression;
+        setSelectValue("moderation", params.moderation);
+        updateModelFields(false);
         if ("seed" in params) $("seed").value = params.seed;
         if ("temperature" in params) syncRangeValue("temperature", "temperatureNumber", "temperatureValue", params.temperature);
         if ("top_p" in params) syncRangeValue("topP", "topPNumber", "topPValue", params.top_p);

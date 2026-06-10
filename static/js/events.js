@@ -8,6 +8,9 @@
         $("resolution").addEventListener("change", () => { updateModelFields(false); saveConfig(); });
         $("quality").addEventListener("change", () => { saveConfig(); updateSubmitHint(); });
         $("variants").addEventListener("change", () => { saveConfig(); updateSubmitHint(); });
+        $("outputFormat").addEventListener("change", () => { updateModelFields(false); saveConfig(); updateSubmitHint(); });
+        $("outputCompression").addEventListener("input", debounce(() => { $("outputCompression").value = String(Math.max(0, Math.min(100, Number($("outputCompression").value) || 0))); saveConfig(); updateSubmitHint(); }, 250));
+        $("moderation").addEventListener("change", () => { saveConfig(); updateSubmitHint(); });
         $("seed").addEventListener("input", debounce(() => { saveConfig(); updateSubmitHint(); }, 500));
         $("autoRetryEnabled").addEventListener("change", () => { autoRetryEnabled = $("autoRetryEnabled").value === "true"; saveConfig(); });
         $("autoRetryMaxAttempts").addEventListener("input", debounce(() => { autoRetryMaxAttempts = Math.max(0, Math.min(10, Number($("autoRetryMaxAttempts").value) || 0)); $("autoRetryMaxAttempts").value = String(autoRetryMaxAttempts); saveConfig(); }, 250));

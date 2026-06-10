@@ -120,8 +120,13 @@
         if (schema.qualities?.length) params.quality = $("quality").value;
         if (schema.variants?.length) {
           params.variants = Number($("variants").value);
-          if (params.variants === 4) params.provider = "KieAI";
+          if (params.variants === 4 && (!schema.provider || schema.provider === "bizyair")) params.provider = "KieAI";
         }
+        if (schema.outputFormats?.length) {
+          params.output_format = $("outputFormat").value;
+          if (params.output_format && params.output_format !== "png") params.output_compression = Number($("outputCompression").value);
+        }
+        if (schema.moderations?.length) params.moderation = $("moderation").value;
         if (model.startsWith("gemini")) {
           params.temperature = Number($("temperature").value);
           params.top_p = Number($("topP").value);
