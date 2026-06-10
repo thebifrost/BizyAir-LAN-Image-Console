@@ -123,7 +123,20 @@ def validate_params(model: str, params: dict, schemas: dict | None = None) -> di
                 if value >= 0:
                     clean[key] = value
     if schema.get("provider", "bizyair") != "bizyair":
-        for key in ("size", "style", "background", "moderation", "seed", "temperature", "top_p"):
+        output_format = params.get("output_format")
+        if output_format in schema.get("outputFormats", ["png", "jpeg", "webp"]):
+            clean["output_format"] = output_format
+        moderation = params.get("moderation")
+        if moderation in schema.get("moderations", ["auto", "low"]):
+            clean["moderation"] = moderation
+        if "output_compression" in params and output_format and output_format != "png":
+            try:
+                value = int(params["output_compression"])
+            except (TypeError, ValueError):
+                value = -1
+            if 0 <= value <= 100:
+                clean["output_compression"] = value
+        for key in ("size", "style", "background", "seed", "temperature", "top_p"):
             if key in params and params[key] not in (None, ""):
                 clean[key] = params[key]
     urls = params.get("urls")

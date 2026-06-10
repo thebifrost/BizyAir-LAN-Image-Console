@@ -61,7 +61,7 @@ class UpstreamClient:
         variants = payload.get("variants")
         if variants:
             body["n"] = variants
-        for key in ("size", "quality", "aspect_ratio", "resolution", "style", "background", "moderation", "seed", "temperature", "top_p"):
+        for key in ("size", "quality", "aspect_ratio", "resolution", "style", "background", "moderation", "output_format", "output_compression", "seed", "temperature", "top_p"):
             if key in payload and payload[key] not in (None, ""):
                 body[key] = payload[key]
         response = self.session.post(
@@ -73,7 +73,8 @@ class UpstreamClient:
         return response, self.json_response(response)
 
 
-def normalize_openai_image_result(data: dict) -> dict:
+def normalize_openai_image_result(data: dict, output_format: str = "png") -> dict:
+    mime = {"jpeg": "image/jpeg", "jpg": "image/jpeg", "webp": "image/webp", "png": "image/png"}.get(output_format, "image/png")
     images: list[str] = []
     for item in data.get("data", []) if isinstance(data, dict) else []:
         if not isinstance(item, dict):
@@ -84,7 +85,7 @@ def normalize_openai_image_result(data: dict) -> dict:
             continue
         b64_json = item.get("b64_json")
         if isinstance(b64_json, str) and b64_json:
-            images.append(f"data:image/png;base64,{b64_json}")
+            images.append(f"data:{mime};base64,{b64_json}")
     return {"status": "succeeded", "outputs": {"images": images}, "raw": data}
 
 def summarize_account(wallet: dict, metadata: dict) -> dict:

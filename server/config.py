@@ -151,9 +151,11 @@ def default_openai_schema() -> dict:
     return {
         "aspectRatios": ["1:1", "2:3", "3:2", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16"],
         "resolutions": [],
-        "qualities": ["low", "medium", "high"],
+        "qualities": ["auto", "low", "medium", "high"],
         "variants": [1, 2, 3, 4],
         "maxUrls": 10,
+        "outputFormats": ["png", "jpeg", "webp"],
+        "moderations": ["auto", "low"],
         "provider": "openai_compatible",
     }
 

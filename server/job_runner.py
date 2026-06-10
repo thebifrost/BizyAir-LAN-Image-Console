@@ -119,7 +119,7 @@ class JobRunner:
         response, data = self.upstream_client.create_openai_image(provider, item["model"], item["payload"])
         if not response.ok:
             raise RuntimeError(f"OpenAI-compatible 生成失败: HTTP {response.status_code} - {redact(data, self.config)}")
-        result = normalize_openai_image_result(data)
+        result = normalize_openai_image_result(data, str(item["payload"].get("output_format") or "png"))
         if not result.get("outputs", {}).get("images"):
             raise RuntimeError(f"OpenAI-compatible 响应缺少图片: {redact(data, self.config)}")
         self._archive_result_images(item, result)

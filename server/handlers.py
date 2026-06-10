@@ -725,7 +725,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
 
     def _openai_params(self, body: dict, urls: list[str]) -> dict:
         params = {}
-        for key in ("aspect_ratio", "resolution", "quality", "variants", "temperature", "top_p", "seed", "max_tokens", "size", "style", "background", "moderation"):
+        for key in ("aspect_ratio", "resolution", "quality", "variants", "temperature", "top_p", "seed", "max_tokens", "size", "style", "background", "moderation", "output_format", "output_compression"):
             if key in body:
                 params[key] = body[key]
         if "variants" not in params and "n" in body:
