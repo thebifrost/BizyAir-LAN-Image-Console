@@ -134,6 +134,7 @@
           modelEl.value = record.model;
           updateModelFields(false);
         }
+        setSelectValue("size", params.size);
         setSelectValue("resolution", params.resolution);
         updateModelFields(false);
         setSelectValue("aspectRatio", params.aspect_ratio);

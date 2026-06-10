@@ -4,6 +4,7 @@
         const schema = modelSchemas[modelEl.value];
         if (!schema) return;
         const previous = {
+          size: $("size").value,
           aspectRatio: $("aspectRatio").value,
           resolution: $("resolution").value,
           quality: $("quality").value,
@@ -11,6 +12,7 @@
           outputFormat: $("outputFormat").value,
           moderation: $("moderation").value,
         };
+        fillSelect("size", schema.sizes || [], previous.size || "auto");
         fillSelect("resolution", schema.resolutions || [], previous.resolution);
         const aspectRatios = modelEl.value === "gpt-image-2" && $("resolution").value === "4k" ? ["16:9", "9:16", "21:9"] : (schema.aspectRatios || []);
         fillSelect("aspectRatio", aspectRatios, previous.aspectRatio);
@@ -18,6 +20,7 @@
         fillSelect("variants", schema.variants || [], previous.variants);
         fillSelect("outputFormat", schema.outputFormats || [], previous.outputFormat || "png");
         fillSelect("moderation", schema.moderations || [], previous.moderation || "auto");
+        toggleField("size", schema.sizes?.length);
         toggleField("resolution", schema.resolutions?.length);
         toggleField("quality", schema.qualities?.length);
         toggleField("variants", schema.variants?.length);

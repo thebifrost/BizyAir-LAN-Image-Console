@@ -4,6 +4,7 @@
         $("generateForm").addEventListener("submit", (event) => event.preventDefault());
         $("generateForm").addEventListener("keydown", (event) => { if ((event.ctrlKey || event.metaKey) && event.key === "Enter") runSingleTask(); });
         $("prompt").addEventListener("input", debounce(() => { saveConfig(); updateSubmitHint(); }, 500));
+        $("size").addEventListener("change", () => { saveConfig(); updateSubmitHint(); });
         $("aspectRatio").addEventListener("change", () => { saveConfig(); updateSubmitHint(); });
         $("resolution").addEventListener("change", () => { updateModelFields(false); saveConfig(); });
         $("quality").addEventListener("change", () => { saveConfig(); updateSubmitHint(); });

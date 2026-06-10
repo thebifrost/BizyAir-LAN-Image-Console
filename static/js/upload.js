@@ -405,6 +405,7 @@
         const maxUrls = Number(schema.maxUrls || 0);
         const submissionInputCount = (selectedMainImageUrls.length ? 1 : 0) + selectedReferenceUrls.length;
         const parts = [`模型 ${modelDisplayName(modelEl.value) || "--"}`];
+        if (schema.sizes?.length) parts.push(`尺寸 ${$("size").value || "--"}`);
         if (schema.aspectRatios?.length) parts.push(`比例 ${$("aspectRatio").value || "--"}`);
         if (schema.resolutions?.length) parts.push(`分辨率 ${$("resolution").value || "--"}`);
         if (schema.qualities?.length) parts.push(`质量 ${$("quality").value || "--"}`);

@@ -115,6 +115,7 @@
 
       function collectParamsSnapshot(model, schema, referenceUrls = selectedReferenceUrls) {
         const params = {};
+        if (schema.sizes?.length) params.size = $("size").value;
         if (schema.aspectRatios?.length) params.aspect_ratio = $("aspectRatio").value;
         if (schema.resolutions?.length) params.resolution = $("resolution").value;
         if (schema.qualities?.length) params.quality = $("quality").value;

@@ -3,6 +3,7 @@
         const config = {
           prompt: $("prompt").value,
           model: modelEl.value,
+          size: $("size").value,
           aspectRatio: $("aspectRatio").value,
           resolution: $("resolution").value,
           quality: $("quality").value,
@@ -42,6 +43,7 @@
         if (options.includePrompt && "prompt" in config) $("prompt").value = config.prompt;
         if (config.model && modelSchemas[config.model]) modelEl.value = config.model;
         updateModelFields(false);
+        setSelectValue("size", config.size);
         setSelectValue("resolution", config.resolution);
         updateModelFields(false);
         setSelectValue("aspectRatio", config.aspectRatio);
