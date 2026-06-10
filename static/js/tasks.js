@@ -127,10 +127,10 @@
           if (params.output_format && params.output_format !== "png") params.output_compression = Number($("outputCompression").value);
         }
         if (schema.moderations?.length) params.moderation = $("moderation").value;
+        if (supportsSeed(model, schema)) params.seed = Number($("seed").value);
         if (model.startsWith("gemini")) {
           params.temperature = Number($("temperature").value);
           params.top_p = Number($("topP").value);
-          params.seed = Number($("seed").value);
           params.max_tokens = Number($("maxTokens").value);
         }
         return { params, referenceUrls: referenceUrls.slice(), maxUrls: Number(schema.maxUrls || 0) };

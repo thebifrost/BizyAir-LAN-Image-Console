@@ -24,6 +24,7 @@
         toggleField("outputFormat", schema.outputFormats?.length);
         toggleField("moderation", schema.moderations?.length);
         toggleField("outputCompression", schema.outputFormats?.length && $("outputFormat").value && $("outputFormat").value !== "png");
+        toggleField("seed", supportsSeed(modelEl.value, schema));
         const maxTemp = schema.temperature?.max ?? 2;
         $("temperature").max = maxTemp;
         $("temperatureNumber").max = maxTemp;
@@ -43,6 +44,10 @@
 
       function toggleField(id, visible) {
         $(id).closest(".field").style.display = visible ? "grid" : "none";
+      }
+
+      function supportsSeed(model, schema) {
+        return schema?.seed === true || String(model || "").startsWith("gemini");
       }
 
       function bindRange(rangeId, numberId, labelId, onChange) {

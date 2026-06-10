@@ -111,17 +111,25 @@ def validate_params(model: str, params: dict, schemas: dict | None = None) -> di
             clean["variants"] = variants
             if variants == 4 and schema.get("provider", "bizyair") == "bizyair":
                 clean["provider"] = "KieAI"
+    supports_seed = schema.get("seed") is True or model.startswith("gemini")
     if model.startswith("gemini"):
         for key in ("temperature", "top_p"):
             if key in params:
                 value = float(params[key])
                 if 0 <= value <= float(schema.get("temperature", {}).get("max", 1) if key == "temperature" else schema.get("topP", 1)):
                     clean[key] = value
-        for key in ("seed", "max_tokens"):
+        for key in ("max_tokens",):
             if key in params:
                 value = int(params[key])
                 if value >= 0:
                     clean[key] = value
+    if supports_seed and "seed" in params:
+        try:
+            value = int(params["seed"])
+        except (TypeError, ValueError):
+            value = -1
+        if value >= 0:
+            clean["seed"] = value
     if schema.get("provider", "bizyair") != "bizyair":
         output_format = params.get("output_format")
         if output_format in schema.get("outputFormats", ["png", "jpeg", "webp"]):
@@ -136,7 +144,7 @@ def validate_params(model: str, params: dict, schemas: dict | None = None) -> di
                 value = -1
             if 0 <= value <= 100:
                 clean["output_compression"] = value
-        for key in ("size", "style", "background", "seed", "temperature", "top_p"):
+        for key in ("size", "style", "background", "temperature", "top_p"):
             if key in params and params[key] not in (None, ""):
                 clean[key] = params[key]
     urls = params.get("urls")

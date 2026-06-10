@@ -410,7 +410,7 @@
         if (schema.qualities?.length) parts.push(`质量 ${$("quality").value || "--"}`);
         if (schema.outputFormats?.length) parts.push(`格式 ${$("outputFormat").value || "--"}`);
         if (schema.moderations?.length) parts.push(`审核 ${$("moderation").value || "--"}`);
-        parts.push(`Seed ${$("seed").value || 0}`);
+        if (supportsSeed(modelEl.value, schema)) parts.push(`Seed ${$("seed").value || 0}`);
         if (maxUrls && submissionInputCount > Math.min(maxUrls, MAX_INPUT_IMAGES)) {
           $("submitHint").textContent = `${parts.join(" · ")} · 本次提交图片最多 ${Math.min(maxUrls, MAX_INPUT_IMAGES)} 张`;
           return;
