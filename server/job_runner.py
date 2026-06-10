@@ -8,7 +8,7 @@ from .database import Database
 from .key_pool import BizyAirKeyPool
 from .logging_utils import redact
 from .schemas import PENDING_UPSTREAM_STATUSES, TERMINAL_STATUSES
-from .upstream_client import UpstreamClient
+from .upstream_client import UpstreamClient, normalize_openai_image_result
 
 
 class JobCancelled(Exception):
@@ -88,6 +88,10 @@ class JobRunner:
             return
         if item["status"] in TERMINAL_STATUSES:
             return
+        provider_id = self.config.model_providers.get(item["model"], "bizyair")
+        if provider_id != "bizyair":
+            self._process_openai_compatible_item(item_id, item, provider_id)
+            return
         key = self.key_pool.pick(item.get("bizyair_key_id"))
         item = self.db.get_item_for_processing(item_id)
         if item.get("cancel_requested"):
@@ -104,6 +108,20 @@ class JobRunner:
             request_id = self._create_upstream_task(item, key)
             self.db.set_upstream_request_id(item_id, request_id)
         result = self._poll_upstream_task(item_id, request_id, key)
+        self._archive_result_images(item, result)
+        self.db.finish_item(item_id, "succeeded", result=result)
+
+    def _process_openai_compatible_item(self, item_id: str, item: dict, provider_id: str) -> None:
+        provider = self.config.openai_compatible
+        if not provider or provider.id != provider_id:
+            raise RuntimeError(f"未找到模型 {item['model']} 对应的 OpenAI-compatible provider: {provider_id}")
+        self.db.set_item_running(item_id)
+        response, data = self.upstream_client.create_openai_image(provider, item["model"], item["payload"])
+        if not response.ok:
+            raise RuntimeError(f"OpenAI-compatible 生成失败: HTTP {response.status_code} - {redact(data, self.config)}")
+        result = normalize_openai_image_result(data)
+        if not result.get("outputs", {}).get("images"):
+            raise RuntimeError(f"OpenAI-compatible 响应缺少图片: {redact(data, self.config)}")
         self._archive_result_images(item, result)
         self.db.finish_item(item_id, "succeeded", result=result)
 

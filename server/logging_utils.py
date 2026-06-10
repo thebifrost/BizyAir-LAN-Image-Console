@@ -31,6 +31,8 @@ def redact(value: object, config: AppConfig | None = None) -> str:
         for key_config in config.bizyair_keys:
             if key_config.api_key:
                 text = text.replace(key_config.api_key, "[REDACTED_BIZYAIR_KEY]")
+        if config.openai_compatible and config.openai_compatible.api_key:
+            text = text.replace(config.openai_compatible.api_key, "[REDACTED_OPENAI_COMPAT_KEY]")
     text = re.sub(r"Bearer\s+[A-Za-z0-9._\-]+", "Bearer [REDACTED]", text)
     text = re.sub(r"sk-[A-Za-z0-9]+", "sk-[REDACTED]", text)
     return text[:1200]

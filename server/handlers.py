@@ -21,7 +21,7 @@ import requests
 from .bizyUpImage import BizyUpImage
 from .config import APP_VERSION, PROJECT_ROOT, now_iso, update_env_value
 from .logging_utils import redact
-from .schemas import ALLOWED_UPLOAD_EXTENSIONS, ALLOWED_UPLOAD_MIME_PREFIXES, MODEL_SCHEMAS, validate_params
+from .schemas import ALLOWED_UPLOAD_EXTENSIONS, ALLOWED_UPLOAD_MIME_PREFIXES, get_model_schemas, validate_params
 from .upstream_client import UpstreamClient, summarize_account
 
 class LanGatewayHandler(BaseHTTPRequestHandler):
@@ -42,7 +42,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
                 self._send_json({"status": True, "data": self._public_config()})
             elif parsed.path == "/api/models":
                 self._require_auth("models")
-                self._send_json({"status": True, "data": MODEL_SCHEMAS})
+                self._send_json({"status": True, "data": get_model_schemas(self.server.config)})
             elif parsed.path == "/v1/models":
                 self._require_auth("openai:models")
                 self._handle_openai_models()
@@ -313,17 +313,18 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             self.server.logger.warning("本地图片文件删除失败: %s", redact(exc, self.server.config))
 
     def _handle_openai_models(self) -> None:
+        schemas = get_model_schemas(self.server.config)
         data = [
             {
                 "id": model,
                 "object": "model",
                 "created": 0,
-                "owned_by": "bizyair",
+                "owned_by": schemas[model].get("provider", "bizyair"),
                 "permission": [],
                 "root": model,
                 "parent": None,
             }
-            for model in MODEL_SCHEMAS
+            for model in schemas
         ]
         self._audit("openai:models", "ok", {"count": len(data)})
         self._send_json({"object": "list", "data": data})
@@ -452,7 +453,8 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
         try:
             body = self._read_json_body()
             model = str(body.get("model", "")).strip()
-            if model not in MODEL_SCHEMAS:
+            schemas = get_model_schemas(self.server.config)
+            if model not in schemas:
                 self._send_openai_error("不支持的模型", 404, param="model", code="model_not_found")
                 return
             prompt = str(body.get("prompt", "")).strip()
@@ -466,7 +468,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             params = self._openai_params(body, [])
             if "size" in body:
                 self._apply_openai_image_size(params, body["size"])
-            params = validate_params(model, params)
+            params = validate_params(model, params, schemas)
             if "n" in body and "variants" not in params:
                 try:
                     n_value = int(body["n"])
@@ -510,7 +512,8 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
                 return
             text_fields, files = self._read_multipart_form(content_length, content_type)
             model = text_fields.get("model", "").strip()
-            if model not in MODEL_SCHEMAS:
+            schemas = get_model_schemas(self.server.config)
+            if model not in schemas:
                 self._send_openai_error("不支持的模型", 404, param="model", code="model_not_found")
                 return
             prompt = text_fields.get("prompt", "").strip()
@@ -541,7 +544,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             params = self._openai_params(body_for_params, urls)
             if "size" in text_fields:
                 self._apply_openai_image_size(params, text_fields["size"])
-            params = validate_params(model, params)
+            params = validate_params(model, params, schemas)
             if "n" in text_fields and "variants" not in params:
                 try:
                     n_value = int(text_fields["n"])
@@ -612,12 +615,13 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
                 self._send_openai_error("stream is not supported", 400, param="stream")
                 return
             model = str(body.get("model", "")).strip()
-            if model not in MODEL_SCHEMAS:
+            schemas = get_model_schemas(self.server.config)
+            if model not in schemas:
                 self._send_openai_error("不支持的模型", 404, param="model", code="model_not_found")
                 return
             prompt, urls = self._openai_messages_to_prompt_and_urls(body.get("messages"))
             params = self._openai_params(body, urls)
-            params = validate_params(model, params)
+            params = validate_params(model, params, schemas)
             job = self._create_openai_job(model, prompt, params)
             result = self._wait_for_openai_job(job["id"])
         except ValueError as exc:
@@ -672,10 +676,10 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             if urls:
                 return urls
         outputs = result.get("outputs") if isinstance(result.get("outputs"), dict) else {}
-        return [url for url in outputs.get("images", []) if isinstance(url, str) and url.startswith(("http://", "https://"))]
+        return [url for url in outputs.get("images", []) if isinstance(url, str) and url.startswith(("http://", "https://", "data:"))]
 
     def _absolute_url(self, url: str) -> str:
-        if url.startswith(("http://", "https://")):
+        if url.startswith(("http://", "https://", "data:")):
             return url
         origin = self.headers.get("Origin", "").rstrip("/")
         host = self.headers.get("Host") or f"{self.server.config.host}:{self.server.config.port}"
@@ -721,7 +725,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
 
     def _openai_params(self, body: dict, urls: list[str]) -> dict:
         params = {}
-        for key in ("aspect_ratio", "resolution", "quality", "variants", "temperature", "top_p", "seed", "max_tokens"):
+        for key in ("aspect_ratio", "resolution", "quality", "variants", "temperature", "top_p", "seed", "max_tokens", "size", "style", "background", "moderation"):
             if key in body:
                 params[key] = body[key]
         if "variants" not in params and "n" in body:
@@ -771,6 +775,8 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
         return {"created": int(time.time()), "data": data}
 
     def _download_image_base64(self, url: str) -> str:
+        if url.startswith("data:") and ";base64," in url:
+            return url.split(";base64,", 1)[1]
         if url.startswith("/api/images/"):
             image_id = url.removeprefix("/api/images/").split("/", 1)[0]
             image = self.server.db.get_job_image(image_id)
@@ -784,7 +790,8 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
     def _handle_create_job(self) -> None:
         body = self._read_json_body()
         model = str(body.get("model", "")).strip()
-        if model not in MODEL_SCHEMAS:
+        schemas = get_model_schemas(self.server.config)
+        if model not in schemas:
             raise ValueError("不支持的模型")
         prompts = body.get("prompts")
         if not isinstance(prompts, list):
@@ -797,7 +804,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
         params = body.get("params") or {}
         if not isinstance(params, dict):
             raise ValueError("params 必须是对象")
-        params = validate_params(model, params)
+        params = validate_params(model, params, schemas)
         job = self.server.db.create_job(model, prompts, params)
         self.server.runner.enqueue_job(job)
         self._audit("jobs:create", "ok", {"job_id": job["id"], "model": model, "total": len(prompts)})
@@ -946,7 +953,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
                 {"id": key.id, "label": key.label or key.id}
                 for key in self.server.config.bizyair_keys
             ],
-            "models": list(MODEL_SCHEMAS.keys()),
+            "models": list(get_model_schemas(self.server.config).keys()),
         }
 
     @staticmethod

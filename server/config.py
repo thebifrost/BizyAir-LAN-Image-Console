@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 from dataclasses import dataclass
@@ -29,6 +30,16 @@ class BizyAirKeyConfig:
 
 
 @dataclass(frozen=True)
+class OpenAICompatibleConfig:
+    id: str
+    api_key: str
+    base_url: str
+    models: tuple[str, ...]
+    label: str = ""
+    timeout_seconds: int = 300
+
+
+@dataclass(frozen=True)
 class AppConfig:
     host: str
     port: int
@@ -37,6 +48,8 @@ class AppConfig:
     bizyair_base_url: str
     bizyair_wallet_url: str
     bizyair_metadata_url: str
+    openai_compatible: OpenAICompatibleConfig | None
+    custom_model_schemas: dict
     cors_origins: set[str]
     data_dir: Path
     log_dir: Path
@@ -56,6 +69,17 @@ class AppConfig:
     @property
     def bizyair_api_key(self) -> str:
         return self.bizyair_keys[0].api_key
+
+    @property
+    def model_providers(self) -> dict[str, str]:
+        providers = {
+            model: schema.get("provider", "bizyair")
+            for model, schema in self.custom_model_schemas.items()
+            if isinstance(schema, dict)
+        }
+        if self.openai_compatible:
+            providers.update({model: self.openai_compatible.id for model in self.openai_compatible.models})
+        return providers
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -110,11 +134,62 @@ def split_env_list(name: str) -> list[str]:
     return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
 
 
+def load_custom_model_schemas() -> dict:
+    raw = os.getenv("CUSTOM_MODEL_SCHEMAS", "").strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"CUSTOM_MODEL_SCHEMAS 必须是合法 JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise SystemExit("CUSTOM_MODEL_SCHEMAS 必须是 JSON 对象")
+    return value
+
+
+def default_openai_schema() -> dict:
+    return {
+        "aspectRatios": ["1:1", "2:3", "3:2", "4:5", "5:4", "3:4", "4:3", "16:9", "9:16"],
+        "resolutions": [],
+        "qualities": ["low", "medium", "high"],
+        "variants": [1, 2, 3, 4],
+        "maxUrls": 10,
+        "provider": "openai_compatible",
+    }
+
+
+def load_openai_compatible() -> tuple[OpenAICompatibleConfig | None, dict]:
+    api_key = os.getenv("OPENAI_COMPAT_API_KEY", "").strip()
+    base_url = os.getenv("OPENAI_COMPAT_BASE_URL", "").strip().rstrip("/")
+    models = tuple(split_env_list("OPENAI_COMPAT_MODELS"))
+    if not any((api_key, base_url, models)):
+        return None, {}
+    if not api_key:
+        raise SystemExit("配置 OPENAI_COMPAT_BASE_URL/OPENAI_COMPAT_MODELS 时必须同时配置 OPENAI_COMPAT_API_KEY")
+    if not base_url:
+        raise SystemExit("配置 OPENAI_COMPAT_API_KEY/OPENAI_COMPAT_MODELS 时必须同时配置 OPENAI_COMPAT_BASE_URL")
+    if not models:
+        raise SystemExit("配置 OPENAI_COMPAT_API_KEY/OPENAI_COMPAT_BASE_URL 时必须同时配置 OPENAI_COMPAT_MODELS")
+    provider_id = os.getenv("OPENAI_COMPAT_PROVIDER_ID", "openai_compatible").strip() or "openai_compatible"
+    config = OpenAICompatibleConfig(
+        id=provider_id,
+        api_key=api_key,
+        base_url=base_url,
+        models=models,
+        label=os.getenv("OPENAI_COMPAT_LABEL", "OpenAI Compatible").strip(),
+        timeout_seconds=env_int("OPENAI_COMPAT_TIMEOUT_SECONDS", 300, 1),
+    )
+    schemas = {model: {**default_openai_schema(), "provider": provider_id} for model in models}
+    return config, schemas
+
+
 def load_bizyair_keys() -> tuple[BizyAirKeyConfig, ...]:
     keys = split_env_list("BIZYAIR_API_KEYS")
     if not keys:
         single_key = os.getenv("BIZYAIR_API_KEY", os.getenv("APIKEY", "")).strip()
         if not single_key:
+            if os.getenv("OPENAI_COMPAT_API_KEY", "").strip() or os.getenv("OPENAI_COMPAT_BASE_URL", "").strip() or split_env_list("OPENAI_COMPAT_MODELS"):
+                return ()
             raise SystemExit("缺少 BIZYAIR_API_KEY 或 BIZYAIR_API_KEYS，请在环境变量或 .env 中配置 BizyAir 密钥")
         return (BizyAirKeyConfig(id="key-1", api_key=single_key, label=os.getenv("BIZYAIR_KEY_LABEL", "主账号").strip()),)
 
@@ -164,6 +239,8 @@ def load_config() -> AppConfig:
     log_dir = Path(os.getenv("LOG_DIR", str(PROJECT_ROOT / "logs"))).expanduser()
     image_cache_dir = Path(os.getenv("IMAGE_CACHE_DIR", str(Path(tempfile.gettempdir()) / "bizyair-lan-image-cache"))).expanduser()
     result_image_dir = Path(os.getenv("RESULT_IMAGE_DIR", str(data_dir / "result-images"))).expanduser()
+    openai_compatible, openai_model_schemas = load_openai_compatible()
+    custom_model_schemas = {**openai_model_schemas, **load_custom_model_schemas()}
     return AppConfig(
         host=host,
         port=port,
@@ -172,6 +249,8 @@ def load_config() -> AppConfig:
         bizyair_base_url=os.getenv("BIZYAIR_BASE_URL", "https://api.bizyair.cn/x/v1").rstrip("/"),
         bizyair_wallet_url=os.getenv("BIZYAIR_WALLET_URL", "https://api.bizyair.cn/y/v1/wallet"),
         bizyair_metadata_url=os.getenv("BIZYAIR_METADATA_URL", "https://api.bizyair.cn/x/v1/user/metadata"),
+        openai_compatible=openai_compatible,
+        custom_model_schemas=custom_model_schemas,
         cors_origins=cors_origins,
         data_dir=data_dir,
         log_dir=log_dir,

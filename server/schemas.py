@@ -73,8 +73,22 @@ MODEL_SCHEMAS = {
     },
 }
 
-def validate_params(model: str, params: dict) -> dict:
-    schema = MODEL_SCHEMAS[model]
+
+def get_model_schemas(config=None) -> dict:
+    if not config:
+        return MODEL_SCHEMAS
+    custom_schemas = getattr(config, "custom_model_schemas", {})
+    if not getattr(config, "bizyair_keys", ()):
+        return {
+            model: schema
+            for model, schema in custom_schemas.items()
+            if isinstance(schema, dict) and schema.get("provider", "bizyair") != "bizyair"
+        }
+    return {**MODEL_SCHEMAS, **custom_schemas}
+
+
+def validate_params(model: str, params: dict, schemas: dict | None = None) -> dict:
+    schema = (schemas or MODEL_SCHEMAS)[model]
     clean: dict = {}
     if schema.get("aspectRatios"):
         aspect_ratio = params.get("aspect_ratio")
@@ -95,7 +109,7 @@ def validate_params(model: str, params: dict) -> dict:
             variants = None
         if variants in schema["variants"]:
             clean["variants"] = variants
-            if variants == 4:
+            if variants == 4 and schema.get("provider", "bizyair") == "bizyair":
                 clean["provider"] = "KieAI"
     if model.startswith("gemini"):
         for key in ("temperature", "top_p"):
@@ -108,6 +122,10 @@ def validate_params(model: str, params: dict) -> dict:
                 value = int(params[key])
                 if value >= 0:
                     clean[key] = value
+    if schema.get("provider", "bizyair") != "bizyair":
+        for key in ("size", "style", "background", "moderation", "seed", "temperature", "top_p"):
+            if key in params and params[key] not in (None, ""):
+                clean[key] = params[key]
     urls = params.get("urls")
     if isinstance(urls, list) and schema.get("maxUrls", 0):
         max_urls = min(int(schema.get("maxUrls") or 0), MAX_INPUT_IMAGES)

@@ -1,6 +1,6 @@
 import requests
 
-from .config import AppConfig, BizyAirKeyConfig, CLIENT_VERSION
+from .config import AppConfig, BizyAirKeyConfig, CLIENT_VERSION, OpenAICompatibleConfig
 
 class UpstreamClient:
     def __init__(self, config: AppConfig):
@@ -39,6 +39,53 @@ class UpstreamClient:
         wallet = self.session.get(self.wallet_url, headers=headers, timeout=30)
         metadata = self.session.get(self.metadata_url, headers=headers, timeout=30)
         return wallet, metadata, self.json_response(wallet), self.json_response(metadata)
+
+    @staticmethod
+    def openai_headers(provider: OpenAICompatibleConfig) -> dict:
+        return {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "Authorization": f"Bearer {provider.api_key}",
+        }
+
+    def create_openai_image(self, provider: OpenAICompatibleConfig, model: str, payload: dict) -> tuple[requests.Response, dict]:
+        prompt = str(payload.get("prompt") or "")
+        urls = payload.get("urls") if isinstance(payload.get("urls"), list) else []
+        if urls:
+            prompt = f"{prompt}\n\nReference images:\n" + "\n".join(str(url) for url in urls)
+        body = {
+            "model": model,
+            "prompt": prompt,
+            "response_format": "url",
+        }
+        variants = payload.get("variants")
+        if variants:
+            body["n"] = variants
+        for key in ("size", "quality", "aspect_ratio", "resolution", "style", "background", "moderation", "seed", "temperature", "top_p"):
+            if key in payload and payload[key] not in (None, ""):
+                body[key] = payload[key]
+        response = self.session.post(
+            f"{provider.base_url}/images/generations",
+            json=body,
+            headers=self.openai_headers(provider),
+            timeout=provider.timeout_seconds,
+        )
+        return response, self.json_response(response)
+
+
+def normalize_openai_image_result(data: dict) -> dict:
+    images: list[str] = []
+    for item in data.get("data", []) if isinstance(data, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url")
+        if isinstance(url, str) and url:
+            images.append(url)
+            continue
+        b64_json = item.get("b64_json")
+        if isinstance(b64_json, str) and b64_json:
+            images.append(f"data:image/png;base64,{b64_json}")
+    return {"status": "succeeded", "outputs": {"images": images}, "raw": data}
 
 def summarize_account(wallet: dict, metadata: dict) -> dict:
     wallet_data = wallet.get("data", {}) if isinstance(wallet, dict) else {}
