@@ -22,7 +22,8 @@ import requests
 
 from .bizyUpImage import BizyUpImage
 from .config import APP_VERSION, PROJECT_ROOT, now_iso, update_env_value
-from .env_store import public_env_config, save_env_config
+from .env_store import save_env_config
+from .http_routes import dispatch_delete, dispatch_get, dispatch_post
 from .imgbb_uploader import ImgBBUploader
 from .input_images import input_image_id_from_url, load_input_image, store_input_image
 from .logging_utils import redact
@@ -40,52 +41,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
         self._begin_request("GET")
         parsed = urlparse(self.path)
         try:
-            if parsed.path == "/health":
-                self._handle_health()
-            elif parsed.path == "/api/config":
-                self._require_auth("config")
-                self._send_json({"status": True, "data": self._public_config()})
-            elif parsed.path == "/api/models":
-                self._require_auth("models")
-                self._send_json({"status": True, "data": get_model_schemas(self.server.config)})
-            elif parsed.path == "/v1/models":
-                self._require_auth("openai:models")
-                self._handle_openai_models()
-            elif parsed.path == "/api/inputs":
-                self._require_auth("inputs")
-                self._handle_inputs(parsed)
-            elif parsed.path == "/api/account":
-                self._require_auth("account")
-                self._handle_account()
-            elif parsed.path == "/api/admin/runtime":
-                self._require_auth("admin:runtime")
-                self._handle_admin_runtime()
-            elif parsed.path == "/api/admin/env":
-                self._require_auth("admin:env:get")
-                self._send_json({"status": True, "data": public_env_config(self.server.config)})
-            elif parsed.path == "/api/logs":
-                self._require_auth("logs:get")
-                self._handle_logs(parsed)
-            elif parsed.path == "/api/image-cache":
-                self._handle_image_cache(parsed)
-            elif parsed.path.startswith("/api/input-images/"):
-                self._handle_input_image(parsed.path)
-            elif parsed.path.startswith("/api/images/"):
-                self._handle_local_image(parsed.path)
-            elif parsed.path == "/api/jobs":
-                self._require_auth("jobs:list")
-                self._send_json({"status": True, "data": self.server.db.list_jobs()})
-            elif parsed.path.startswith("/api/jobs/"):
-                self._require_auth("jobs:get")
-                job_id = parsed.path.removeprefix("/api/jobs/").strip("/")
-                if "/" in job_id or not job_id:
-                    self._send_json({"status": False, "message": "Not found"}, 404)
-                    return
-                self._send_json({"status": True, "data": self.server.db.get_job(job_id)})
-            elif parsed.path.startswith("/api/"):
-                self._send_json({"status": False, "message": "Not found"}, 404)
-            else:
-                self._serve_static(parsed.path)
+            dispatch_get(self, parsed)
         except PermissionError as exc:
             self._send_json({"status": False, "message": str(exc)}, 401)
         except KeyError as exc:
@@ -100,18 +56,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
         self._begin_request("DELETE")
         parsed = urlparse(self.path)
         try:
-            if parsed.path.startswith("/api/images/"):
-                self._require_auth("images:delete")
-                image_id = parsed.path.removeprefix("/api/images/").strip("/")
-                if "/" in image_id or not re.fullmatch(r"[a-f0-9]{32}", image_id):
-                    self._send_json({"status": False, "message": "Not found"}, 404)
-                    return
-                image = self.server.db.delete_job_image(image_id)
-                self._delete_local_image_file(image)
-                self._audit("images:delete", "ok", {"image_id": image_id})
-                self._send_json({"status": True, "data": {"id": image_id}})
-            else:
-                self._send_json({"status": False, "message": "Not found"}, 404)
+            dispatch_delete(self, parsed)
         except PermissionError as exc:
             self._send_json({"status": False, "message": str(exc)}, 401)
         except KeyError as exc:
@@ -126,45 +71,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
         self._begin_request("POST")
         parsed = urlparse(self.path)
         try:
-            if parsed.path == "/api/upload":
-                self._require_auth("upload")
-                self._handle_upload()
-            elif parsed.path == "/v1/chat/completions":
-                self._require_auth("openai:chat_completions")
-                self._handle_openai_chat_completions()
-            elif parsed.path == "/v1/images/generations":
-                self._require_auth("openai:images_generations")
-                self._handle_openai_images_generations()
-            elif parsed.path == "/v1/images/edits":
-                self._require_auth("openai:images_edits")
-                self._handle_openai_images_edits()
-            elif parsed.path == "/api/admin/config":
-                self._require_auth("admin:config")
-                self._handle_admin_config()
-            elif parsed.path == "/api/admin/env":
-                self._require_auth("admin:env:set")
-                self._handle_admin_env()
-            elif parsed.path == "/api/admin/restart":
-                self._require_auth("admin:restart")
-                self._handle_admin_restart()
-            elif parsed.path == "/api/jobs":
-                self._require_auth("jobs:create")
-                self._handle_create_job()
-            elif parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/cancel"):
-                self._require_auth("jobs:cancel")
-                job_id = parsed.path.removeprefix("/api/jobs/").removesuffix("/cancel").strip("/")
-                job = self.server.db.cancel_job(job_id)
-                self._audit("jobs:cancel", "ok", {"job_id": job_id})
-                self._send_json({"status": True, "data": job})
-            elif parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/retry"):
-                self._require_auth("jobs:create")
-                job_id = parsed.path.removeprefix("/api/jobs/").removesuffix("/retry").strip("/")
-                job = self.server.db.retry_job(job_id)
-                self.server.runner.enqueue_job(job)
-                self._audit("jobs:retry", "ok", {"job_id": job_id})
-                self._send_json({"status": True, "data": job})
-            else:
-                self._send_json({"status": False, "message": "Not found"}, 404)
+            dispatch_post(self, parsed)
         except PermissionError as exc:
             self._send_json({"status": False, "message": str(exc)}, 401)
         except KeyError as exc:

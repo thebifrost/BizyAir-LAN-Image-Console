@@ -80,7 +80,8 @@ BizyAir API
 ├── server/
 │   ├── app.py                # HTTP 服务组装与启动
 │   ├── config.py             # 环境变量与配置加载
-│   ├── handlers.py           # HTTP 路由、认证、上传、任务 API
+│   ├── http_routes.py        # HTTP 路由分发与认证入口
+│   ├── handlers.py           # HTTP 上传、任务 API、OpenAI 兼容接口等处理逻辑
 │   ├── database.py           # SQLite 存储与任务状态管理
 │   ├── job_runner.py         # 后台任务队列与上游轮询
 │   ├── upstream_client.py    # BizyAir 生图/账户 API 客户端
@@ -91,6 +92,10 @@ BizyAir API
 │   └── schemas.py            # 模型参数白名单与校验
 ├── .env.example              # 配置模板，可提交到仓库
 ├── requirements.txt          # Python 依赖
+├── requirements-dev.txt      # 开发依赖
+├── pyproject.toml            # 测试与 lint 工具配置
+├── scripts/check.py          # 本地检查入口
+├── docs/ARCHITECTURE.md      # 维护者架构说明
 ├── .gitignore                # 开源忽略规则
 └── LICENSE                   # GPL-3.0 许可证
 ```
@@ -1004,9 +1009,17 @@ python upload_server.py
 5. 启动服务并在浏览器验证。
 6. 修改后至少测试：登录、账户查询、上传、单条生成、批量生成、取消、重试、历史画廊。
 
+提交前建议运行：
+
+```bash
+python scripts/check.py
+```
+
+更多维护说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、[CONTRIBUTING.md](CONTRIBUTING.md) 和 [SECURITY.md](SECURITY.md)。
+
 ### 后端开发要点
 
-- 新增路由通常在 `server/handlers.py`。
+- 新增路由通常在 `server/http_routes.py`，具体处理方法放在 `server/handlers.py`。
 - 新增环境变量通常在 `server/config.py`。
 - 修改任务状态或数据库字段通常在 `server/database.py`。
 - 修改上游任务创建/轮询逻辑通常在 `server/job_runner.py` 和 `server/upstream_client.py`。
@@ -1070,6 +1083,7 @@ curl -X POST http://127.0.0.1:8787/api/upload \
 5. 重新 clone 到干净目录测试快速开始流程。
 6. 确认 `LICENSE` 与 README 中的许可证一致。
 7. 在 GitHub Release 中说明版本、兼容 Python 版本和重要变更。
+8. 运行 `python scripts/check.py` 并确认通过。
 
 ## 开源前检查清单
 
@@ -1083,6 +1097,7 @@ curl -X POST http://127.0.0.1:8787/api/upload \
 - [ ] `.temp/` 未被提交。
 - [ ] README 中没有真实 IP、Key、账户名或私人路径。
 - [ ] `requirements.txt` 可用于安装依赖。
+- [ ] `python scripts/check.py` 可以通过。
 - [ ] `python upload_server.py` 可以正常启动。
 - [ ] 浏览器可以登录并访问 `/api/config`。
 - [ ] 上传、创建任务、取消、重试、历史画廊经过手动验证。
