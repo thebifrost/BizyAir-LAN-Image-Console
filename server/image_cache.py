@@ -92,7 +92,7 @@ class ImageCache:
         infos = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
         for info in infos:
             ip = ipaddress.ip_address(info[4][0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            if not ip.is_global:
                 raise ValueError("图片 URL 指向的地址不允许缓存")
         return url
 

@@ -171,7 +171,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
 
     def _restart_process(self) -> None:
         time.sleep(0.5)
-        self.server.runner.stop()
+        self.server.runner.stop(timeout_seconds=None, drain=True)
         self.server.shutdown()
         os.execv(sys.executable, [sys.executable, *sys.argv])
 
@@ -650,7 +650,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
 
     def _create_openai_job(self, model: str, prompt: str, params: dict) -> dict:
         job = self.server.db.create_job(model, [prompt], params)
-        self.server.runner.enqueue_job(job)
+        self._enqueue_job_or_cancel(job)
         self.server.logger.info("OpenAI 请求已加入队列 job=%s model=%s", job["id"], model)
         return job
 
@@ -825,9 +825,19 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             raise ValueError("params 必须是对象")
         params = validate_params(model, params, schemas)
         job = self.server.db.create_job(model, prompts, params)
-        self.server.runner.enqueue_job(job)
+        self._enqueue_job_or_cancel(job)
         self._audit("jobs:create", "ok", {"job_id": job["id"], "model": model, "total": len(prompts)})
         self._send_json({"status": True, "data": job}, 201)
+
+    def _enqueue_job_or_cancel(self, job: dict) -> None:
+        try:
+            self.server.runner.enqueue_job(job)
+        except RuntimeError as exc:
+            try:
+                self.server.db.cancel_job(job["id"])
+            except Exception:
+                self.server.logger.exception("服务停止期间取消新任务失败 job=%s", job.get("id"))
+            raise RuntimeError("服务正在重启，暂不接受新任务") from exc
 
     def _read_json_body(self) -> dict:
         content_length = int(self.headers.get("Content-Length", "0") or "0")

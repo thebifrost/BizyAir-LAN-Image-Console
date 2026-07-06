@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from server.database import Database
-from server.config import load_openai_providers
+from server.config import load_dotenv, load_openai_providers
 from server.env_store import LEGACY_PROVIDER_KEYS, apply_field_updates, apply_provider_updates
 from server.image_cache import ImageCache
 from server.input_images import input_image_id_from_url, load_input_image, store_input_image
@@ -36,6 +36,17 @@ class GatewayLogicTests(unittest.TestCase):
     def test_key_pool_empty_has_clear_error(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "BizyAir"):
             BizyAirKeyPool(()).pick()
+
+    def test_load_dotenv_does_not_override_existing_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".env").write_text("BIZYAIR_TEST_EXISTING=from-dotenv\nBIZYAIR_TEST_NEW=from-dotenv\n", encoding="utf-8")
+
+            with patch("server.config.PROJECT_ROOT", root), patch.dict(os.environ, {"BIZYAIR_TEST_EXISTING": "from-env"}, clear=False):
+                load_dotenv()
+
+                self.assertEqual(os.environ["BIZYAIR_TEST_EXISTING"], "from-env")
+                self.assertEqual(os.environ["BIZYAIR_TEST_NEW"], "from-dotenv")
 
     def test_validate_params_allows_local_and_data_urls_only_for_third_party(self) -> None:
         local_input = "/api/input-images/" + "a" * 32 + "/file"
@@ -75,6 +86,39 @@ class GatewayLogicTests(unittest.TestCase):
             self.assertEqual(loaded.path.read_bytes(), b"abc")
             self.assertEqual(loaded.content_type, "image/png")
             self.assertEqual(loaded.extension, ".png")
+
+    def test_image_cache_rejects_non_global_addresses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = ImageCache(cache_config(Path(tmp)), logging.getLogger("test"))
+
+            with patch("server.image_cache.socket.getaddrinfo", return_value=[(None, None, None, "", ("100.64.0.1", 80))]):
+                with self.assertRaisesRegex(ValueError, "不允许"):
+                    cache._validate_url("http://example.com/image.png")
+
+    def test_database_does_not_claim_cancelled_running_item(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "jobs.sqlite")
+            job = db.create_job("gpt-image-2", ["draw"], {})
+            item_id = job["items"][0]["id"]
+
+            self.assertTrue(db.set_item_running(item_id))
+            db.cancel_job(job["id"])
+
+            self.assertFalse(db.set_item_running(item_id))
+
+    def test_runner_rejects_new_enqueue_after_stop_starts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "jobs.sqlite")
+            config = SimpleNamespace(
+                bizyair_keys=(),
+                openai_providers={},
+            )
+            runner = JobRunner(config, db, logging.getLogger("test"), upstream_client=None, image_cache=None)
+
+            runner.stop()
+
+            with self.assertRaisesRegex(RuntimeError, "停止"):
+                runner.enqueue("item-1")
 
     def test_data_url_result_is_archived_as_local_job_image(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -55,6 +55,8 @@ class JobRunner:
                 self.enqueue(item["id"])
 
     def enqueue(self, item_id: str) -> None:
+        if self.stop_event.is_set():
+            raise RuntimeError("服务正在停止接收新任务")
         with self.enqueued_lock:
             if item_id in self.enqueued:
                 return
@@ -64,19 +66,20 @@ class JobRunner:
     def size(self) -> int:
         return self.queue.qsize()
 
-    def stop(self, timeout_seconds: float = 2) -> None:
+    def stop(self, timeout_seconds: float | None = 2, drain: bool = False) -> None:
         self.stop_event.set()
-        while True:
-            try:
-                item_id = self.queue.get_nowait()
-            except queue.Empty:
-                break
-            with self.enqueued_lock:
-                self.enqueued.discard(item_id)
-            self.queue.task_done()
-        deadline = time.monotonic() + timeout_seconds
+        if not drain:
+            while True:
+                try:
+                    item_id = self.queue.get_nowait()
+                except queue.Empty:
+                    break
+                with self.enqueued_lock:
+                    self.enqueued.discard(item_id)
+                self.queue.task_done()
+        deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
         for thread in self.threads:
-            remaining = max(0.0, deadline - time.monotonic())
+            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
             thread.join(timeout=remaining)
 
     def _worker(self) -> None:
@@ -124,7 +127,11 @@ class JobRunner:
         if item.get("bizyair_key_id") != key.id:
             self.db.set_item_bizyair_key_id(item_id, key.id)
             item["bizyair_key_id"] = key.id
-        self.db.set_item_running(item_id)
+        if not self.db.set_item_running(item_id):
+            item = self.db.get_item_for_processing(item_id)
+            if item.get("cancel_requested"):
+                self.db.finish_item(item_id, "cancelled")
+            return
         request_id = item.get("upstream_request_id")
         if not request_id:
             request_id = self._create_upstream_task(item, key)
@@ -138,7 +145,11 @@ class JobRunner:
         provider = self.config.openai_providers.get(provider_id)
         if not provider:
             raise RuntimeError(f"未找到模型 {item['model']} 对应的 OpenAI-compatible provider: {provider_id}")
-        self.db.set_item_running(item_id)
+        if not self.db.set_item_running(item_id):
+            item = self.db.get_item_for_processing(item_id)
+            if item.get("cancel_requested"):
+                self.db.finish_item(item_id, "cancelled")
+            return
         if self._cancel_if_requested(item_id):
             return
         reference_images = []

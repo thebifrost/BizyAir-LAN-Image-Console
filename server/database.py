@@ -179,16 +179,30 @@ class Database:
         item["payload"] = json.loads(item.pop("payload_json") or "{}")
         return item
 
-    def set_item_running(self, item_id: str) -> None:
+    def set_item_running(self, item_id: str) -> bool:
         timestamp = now_iso()
         with self.lock, self.connect() as conn:
-            conn.execute(
-                "UPDATE job_items SET status = 'running', started_at = COALESCE(started_at, ?), error = NULL WHERE id = ? AND status != 'cancelled'",
+            cursor = conn.execute(
+                """
+                UPDATE job_items
+                SET status = 'running', started_at = COALESCE(started_at, ?), error = NULL
+                WHERE id = ?
+                  AND status IN ('queued', 'running')
+                  AND EXISTS (
+                    SELECT 1
+                    FROM jobs
+                    WHERE jobs.id = job_items.job_id
+                      AND jobs.cancel_requested = 0
+                  )
+                """,
                 (timestamp, item_id),
             )
+            if cursor.rowcount != 1:
+                return False
             row = conn.execute("SELECT job_id FROM job_items WHERE id = ?", (item_id,)).fetchone()
             if row:
                 conn.execute("UPDATE jobs SET status = 'running', updated_at = ? WHERE id = ? AND status NOT IN ('cancelled')", (timestamp, row["job_id"]))
+            return True
 
     def set_upstream_request_id(self, item_id: str, request_id: str) -> None:
         with self.lock, self.connect() as conn:
