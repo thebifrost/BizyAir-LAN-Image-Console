@@ -658,7 +658,11 @@
 
       .runtime-dialog .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
       .runtime-dialog .modal-head .secondary { min-height: 34px; padding: 0 12px; font-size: 12px; }
+      .runtime-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 0 18px 12px; }
+      .runtime-tabs .secondary { min-height: 34px; padding: 0 10px; font-size: 12px; }
+      .runtime-tabs .is-active { border-color: rgba(31, 97, 141, .45); color: var(--ink); background: rgba(31, 97, 141, .12); }
       .runtime-body { display: grid; gap: 14px; }
+      .runtime-pane { display: grid; gap: 14px; }
       .runtime-line { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; align-items: center; font-size: 13px; color: var(--muted); }
       .runtime-line code, .runtime-line strong { min-width: 0; overflow-wrap: anywhere; color: var(--ink); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
       .runtime-port-row { display: grid; grid-template-columns: auto minmax(90px, 1fr) auto auto; gap: 8px; align-items: center; }
@@ -667,6 +671,20 @@
       .runtime-port-row .secondary, .runtime-actions .secondary { min-height: 38px; padding: 0 12px; font-size: 13px; }
       .runtime-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
       #runtimeHint { color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
+      .env-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+      .env-toolbar .secondary { min-height: 36px; padding: 0 12px; font-size: 13px; }
+      .env-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .env-field { display: grid; gap: 5px; }
+      .env-field label, .provider-card label { font-size: 12px; font-weight: 700; color: var(--muted); }
+      .env-field input, .env-field select, .provider-card input, .provider-card textarea, .provider-card select { min-height: 36px; border-radius: var(--radius-xs); font-size: 13px; }
+      .env-section-title { grid-column: 1 / -1; margin-top: 4px; font-size: 12px; font-weight: 800; color: var(--ink); }
+      .provider-config-list { display: grid; gap: 10px; max-height: min(58vh, 560px); overflow: auto; padding-right: 2px; }
+      .provider-card { display: grid; gap: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; background: rgba(255,255,255,.56); }
+      .provider-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .provider-card-head strong { font-size: 13px; }
+      .provider-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .provider-card .wide { grid-column: 1 / -1; }
+      .provider-remove { min-height: 30px; padding: 0 10px; font-size: 12px; }
 
       .sidebar-head {
         display: flex;

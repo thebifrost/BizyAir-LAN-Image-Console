@@ -14,6 +14,7 @@
           const referenceUrls = mainImageUrl ? selectedReferenceUrls.slice() : [];
           const totalInputImages = (mainImageUrl ? 1 : 0) + referenceUrls.length;
           if (maxUrls && totalInputImages > Math.min(maxUrls, MAX_INPUT_IMAGES)) throw new Error(`本次提交图片不能超过 ${Math.min(maxUrls, MAX_INPUT_IMAGES)} 张。`);
+          ensureInputUrlsCompatible(taskModel, [mainImageUrl, ...referenceUrls].filter(Boolean));
           const params = buildParams(mainImageUrl, referenceUrls);
           const task = await submitTaskWithParams({ prompt: promptText, model: taskModel, params, mainImageUrl, referenceUrls });
           if (mainImageUrl) advanceMainImageRotation();
@@ -46,6 +47,12 @@
         const paramsSnapshot = collectParamsSnapshot(taskModel, schema, referenceUrls);
         const totalInputImages = 1 + referenceUrls.length;
         if (totalInputImages > Math.min(maxUrls, MAX_INPUT_IMAGES)) { toast(`本次提交图片不能超过 ${Math.min(maxUrls, MAX_INPUT_IMAGES)} 张。`); return; }
+        try {
+          ensureInputUrlsCompatible(taskModel, [...mainUrls, ...referenceUrls]);
+        } catch (error) {
+          toast(error.message);
+          return;
+        }
 
         setSubmitButtonsDisabled(true);
         const batchButton = $("batchSubmitJobs");
@@ -113,16 +120,31 @@
         return buildParamsFromSnapshot(collectParamsSnapshot(modelEl.value, modelSchemas[modelEl.value] || {}, referenceUrls), mainImageUrl);
       }
 
+      function ensureInputUrlsCompatible(model, urls) {
+        if (isThirdPartyModel(model)) {
+          if (!thirdPartyReferenceImagesAsFiles && urls.some(isLocalInputImageUrl)) {
+            throw new Error("当前为第三方 URL 发送，不能使用本机暂存图片，请开启本机文件发送或重新上传为远程 URL。");
+          }
+          return;
+        }
+        if (urls.some(isLocalInputImageUrl)) {
+          throw new Error("本机暂存图片只能用于第三方模型，请切回第三方模型或重新上传为远程 URL。");
+        }
+      }
+
       function collectParamsSnapshot(model, schema, referenceUrls = selectedReferenceUrls) {
         const params = {};
-        if (schema.sizes?.length) params.size = $("size").value;
-        if (schema.aspectRatios?.length) params.aspect_ratio = $("aspectRatio").value;
-        if (schema.resolutions?.length) params.resolution = $("resolution").value;
-        if (schema.qualities?.length) params.quality = $("quality").value;
-        if (schema.variants?.length) {
-          params.variants = Number($("variants").value);
-          if (params.variants === 4 && (!schema.provider || schema.provider === "bizyair")) params.provider = "KieAI";
+        if (schema.sizeFromResolution) {
+          if (schema.resolutions?.length) params.resolution = $("resolution").value;
+          if (schema.aspectRatios?.length) params.aspect_ratio = $("aspectRatio").value;
+          const mappedSize = resolveSizeFromSchema(schema, params.resolution, params.aspect_ratio);
+          if (mappedSize) params.size = mappedSize;
+        } else {
+          if (schema.sizes?.length) params.size = $("size").value;
+          if (schema.aspectRatios?.length) params.aspect_ratio = $("aspectRatio").value;
+          if (schema.resolutions?.length) params.resolution = $("resolution").value;
         }
+        if (schema.qualities?.length) params.quality = $("quality").value;
         if (schema.outputFormats?.length) {
           params.output_format = $("outputFormat").value;
           if (params.output_format && params.output_format !== "png") params.output_compression = Number($("outputCompression").value);
@@ -134,6 +156,7 @@
           params.top_p = Number($("topP").value);
           params.max_tokens = Number($("maxTokens").value);
         }
+        if (isThirdPartyModel(model)) params.send_reference_images_as_files = thirdPartyReferenceImagesAsFiles;
         return { params, referenceUrls: referenceUrls.slice(), maxUrls: Number(schema.maxUrls || 0) };
       }
 

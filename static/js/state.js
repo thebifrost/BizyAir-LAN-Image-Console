@@ -18,6 +18,7 @@
         "gemini-3-pro-image-preview-official": "NanoBanana Pro -official",
         "gemini-3.1-flash-image-preview": "NanoBanana 2",
         "gemini-3.1-flash-image-preview-official": "NanoBanana 2 -official",
+        "moyuu-gpt-image-2": "Moyuu GPT Image 2",
       };
       const modelDisplayName = (model) => MODEL_DISPLAY_NAMES[model] || model;
 
@@ -55,6 +56,7 @@
       let autoRetryingTaskIds = new Set();
       let autoRetryEnabled = true;
       let autoRetryMaxAttempts = 2;
+      let thirdPartyReferenceImagesAsFiles = true;
       let pollingJobs = new Set();
       let taskQueueCollapsed = false;
       let logPanelCollapsed = false;

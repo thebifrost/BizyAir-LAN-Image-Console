@@ -1,3 +1,4 @@
+import contextlib
 import json
 import sqlite3
 import threading
@@ -14,12 +15,20 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init()
 
-    def connect(self) -> sqlite3.Connection:
+    @contextlib.contextmanager
+    def connect(self):
         conn = sqlite3.connect(self.path, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init(self) -> None:
         with self.lock, self.connect() as conn:
@@ -376,7 +385,7 @@ class Database:
                 continue
             outputs = result.get("outputs") if isinstance(result.get("outputs"), dict) else result.get("data", {}).get("outputs", {}) if isinstance(result.get("data"), dict) else {}
             for url in outputs.get("images", []) if isinstance(outputs, dict) else []:
-                if isinstance(url, str) and url.startswith(("http://", "https://")):
+                if self._is_displayable_image_url(url):
                     records.append(
                         {
                             "url": url,
@@ -489,8 +498,12 @@ class Database:
             if isinstance(result, dict):
                 outputs = result.get("outputs") if isinstance(result.get("outputs"), dict) else result.get("data", {}).get("outputs", {}) if isinstance(result.get("data"), dict) else {}
                 for url in outputs.get("images", []) if isinstance(outputs, dict) else []:
-                    if isinstance(url, str) and url.startswith(("http://", "https://")):
+                    if Database._is_displayable_image_url(url):
                         images.append(url)
             if len(images) >= 8:
                 break
         return images
+
+    @staticmethod
+    def _is_displayable_image_url(url) -> bool:
+        return isinstance(url, str) and url.startswith(("http://", "https://", "data:image/", "/api/images/"))

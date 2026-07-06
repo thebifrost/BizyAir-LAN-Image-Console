@@ -75,6 +75,11 @@
               </div>
 
               <div class="field">
+                <label for="thirdPartyReferenceImagesAsFiles">第三方参考图</label>
+                <select id="thirdPartyReferenceImagesAsFiles"><option value="true">本机文件发送</option><option value="false">沿用 URL 上传</option></select>
+              </div>
+
+              <div class="field">
                 <label for="size">尺寸</label>
                 <select id="size"></select>
               </div>
@@ -86,7 +91,7 @@
 
               <div class="field"><label for="resolution">分辨率</label><select id="resolution"></select></div>
               <div class="field"><label for="quality">质量</label><select id="quality"></select></div>
-              <div class="field"><label for="variants">变体数量</label><select id="variants"></select></div>
+              <div class="field is-hidden"><label for="variants">变体数量</label><select id="variants"></select></div>
               <div class="field"><label for="outputFormat">输出格式</label><select id="outputFormat"></select></div>
               <div class="field"><label for="outputCompression">压缩率</label><input id="outputCompression" type="number" min="0" max="100" value="80" /></div>
               <div class="field"><label for="moderation">审核级别</label><select id="moderation"></select></div>
@@ -193,20 +198,41 @@
         <h3>OpenAI 设置</h3>
         <button class="secondary" id="refreshRuntime" type="button">刷新</button>
       </div>
+      <div class="runtime-tabs">
+        <button class="secondary is-active" id="runtimeTabStatus" type="button" data-runtime-tab="status">运行</button>
+        <button class="secondary" id="runtimeTabEnv" type="button" data-runtime-tab="env">配置</button>
+        <button class="secondary" id="runtimeTabProviders" type="button" data-runtime-tab="providers">Provider</button>
+      </div>
       <div class="modal-body runtime-body">
-        <div class="runtime-line"><span>Base URL</span><code id="openaiBaseUrl">--</code></div>
-        <div class="runtime-line"><span>队列</span><strong id="runtimeQueueLength">--</strong></div>
-        <div class="runtime-port-row">
-          <label for="runtimePort">端口</label>
-          <input id="runtimePort" type="number" min="1" max="65535" placeholder="8787" />
-          <button class="secondary" id="saveRuntimePort" type="button">保存</button>
-          <button class="secondary danger" id="restartServer" type="button">重启</button>
-        </div>
-        <div class="runtime-actions">
-          <button class="secondary" id="loadAppLog" type="button">刷新应用日志</button>
-          <button class="secondary" id="loadAuditLog" type="button">刷新审计日志</button>
-        </div>
-        <small id="runtimeHint">修改端口后需要重启服务生效。</small>
+        <section class="runtime-pane" id="runtimePaneStatus">
+          <div class="runtime-line"><span>Base URL</span><code id="openaiBaseUrl">--</code></div>
+          <div class="runtime-line"><span>队列</span><strong id="runtimeQueueLength">--</strong></div>
+          <div class="runtime-port-row">
+            <label for="runtimePort">端口</label>
+            <input id="runtimePort" type="number" min="1" max="65535" placeholder="8787" />
+            <button class="secondary" id="saveRuntimePort" type="button">保存</button>
+            <button class="secondary danger" id="restartServer" type="button">重启</button>
+          </div>
+          <div class="runtime-actions">
+            <button class="secondary" id="loadAppLog" type="button">刷新应用日志</button>
+            <button class="secondary" id="loadAuditLog" type="button">刷新审计日志</button>
+          </div>
+          <small id="runtimeHint">修改端口后需要重启服务生效。</small>
+        </section>
+        <section class="runtime-pane" id="runtimePaneEnv" hidden>
+          <div class="env-toolbar">
+            <span class="hint" id="envConfigStatus">读取配置中...</span>
+            <button class="secondary" id="saveEnvConfig" type="button">保存配置</button>
+          </div>
+          <div class="env-grid" id="envFields"></div>
+        </section>
+        <section class="runtime-pane" id="runtimePaneProviders" hidden>
+          <div class="env-toolbar">
+            <span class="hint">多个 Provider 请使用不同模型别名；并发为 0 表示不限流。</span>
+            <button class="secondary" id="addOpenaiProvider" type="button">新增 Provider</button>
+          </div>
+          <div class="provider-config-list" id="providerConfigList"></div>
+        </section>
       </div>
       <div class="modal-foot">
         <button class="secondary" id="closeRuntimeSettings" type="button">关闭</button>
@@ -283,6 +309,7 @@
     <script src="/static/js/config.js"></script>
     <script src="/static/js/api.js"></script>
     <script src="/static/js/auth.js"></script>
+    <script src="/static/js/runtime-config.js"></script>
     <script src="/static/js/gateway.js"></script>
     <script src="/static/js/upload.js"></script>
     <script src="/static/js/model-fields.js"></script>

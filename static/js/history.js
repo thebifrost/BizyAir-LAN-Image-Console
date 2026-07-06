@@ -128,12 +128,13 @@
       }
 
       function loadHistoryParams(record) {
-        const params = record.params || {};
+        let params = record.params || {};
         if (record.prompt) $("prompt").value = record.prompt;
         if (record.model && modelSchemas[record.model]) {
           modelEl.value = record.model;
           updateModelFields(false);
         }
+        params = inferSizeControlsFromParams(modelSchemas[modelEl.value], params);
         setSelectValue("size", params.size);
         setSelectValue("resolution", params.resolution);
         updateModelFields(false);

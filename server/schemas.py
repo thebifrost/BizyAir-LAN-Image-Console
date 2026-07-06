@@ -1,3 +1,6 @@
+import ipaddress
+from urllib.parse import urlparse
+
 PENDING_UPSTREAM_STATUSES = {"running", "queuing", "saving"}
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 ALLOWED_UPLOAD_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -10,6 +13,7 @@ ALLOWED_CACHE_IMAGE_TYPES = {
     "image/avif": ".avif",
 }
 MAX_INPUT_IMAGES = 10
+LOCAL_API_PREFIXES = ("/api/input-images/", "/api/images/")
 
 MODEL_SCHEMAS = {
     "gpt-image-1": {
@@ -104,7 +108,7 @@ def validate_params(model: str, params: dict, schemas: dict | None = None) -> di
             clean["quality"] = quality
     if schema.get("variants"):
         try:
-            variants = int(params.get("variants"))
+            variants = int(params.get("variants", 1))
         except (TypeError, ValueError):
             variants = None
         if variants in schema["variants"]:
@@ -151,11 +155,39 @@ def validate_params(model: str, params: dict, schemas: dict | None = None) -> di
         for key in ("style", "background", "temperature", "top_p"):
             if key in params and params[key] not in (None, ""):
                 clean[key] = params[key]
+        if "send_reference_images_as_files" in params:
+            clean["send_reference_images_as_files"] = params["send_reference_images_as_files"] is not False
     urls = params.get("urls")
     if isinstance(urls, list) and schema.get("maxUrls", 0):
         max_urls = min(int(schema.get("maxUrls") or 0), MAX_INPUT_IMAGES)
-        clean_urls = [url for url in urls if isinstance(url, str) and url.startswith(("http://", "https://"))]
+        provider = schema.get("provider", "bizyair")
+        clean_urls = [url for url in urls if isinstance(url, str) and is_allowed_input_url(url, provider)]
         if len(clean_urls) > MAX_INPUT_IMAGES:
             raise ValueError(f"输入图片不能超过 {MAX_INPUT_IMAGES} 张")
         clean["urls"] = clean_urls[:max_urls]
     return clean
+
+
+def is_allowed_input_url(url: str, provider: str) -> bool:
+    if is_local_api_url(url) or url.lower().startswith("data:image/"):
+        return provider != "bizyair"
+    return url.startswith(("http://", "https://"))
+
+
+def is_local_api_url(url: str) -> bool:
+    if not isinstance(url, str):
+        return False
+    parsed = urlparse(url) if url.startswith(("http://", "https://")) else None
+    path = parsed.path if parsed else url
+    if not path.startswith(LOCAL_API_PREFIXES):
+        return False
+    if not parsed:
+        return True
+    host = (parsed.hostname or "").lower()
+    if host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_private

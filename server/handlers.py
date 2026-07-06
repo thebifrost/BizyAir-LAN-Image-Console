@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -20,6 +22,9 @@ import requests
 
 from .bizyUpImage import BizyUpImage
 from .config import APP_VERSION, PROJECT_ROOT, now_iso, update_env_value
+from .env_store import public_env_config, save_env_config
+from .imgbb_uploader import ImgBBUploader
+from .input_images import input_image_id_from_url, load_input_image, store_input_image
 from .logging_utils import redact
 from .schemas import ALLOWED_UPLOAD_EXTENSIONS, ALLOWED_UPLOAD_MIME_PREFIXES, get_model_schemas, validate_params
 from .upstream_client import UpstreamClient, summarize_account
@@ -28,11 +33,11 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
     server: object
 
     def do_OPTIONS(self) -> None:
-        self._debug_log_request("OPTIONS")
+        self._begin_request("OPTIONS")
         self._send_json({"status": True})
 
     def do_GET(self) -> None:
-        self._debug_log_request("GET")
+        self._begin_request("GET")
         parsed = urlparse(self.path)
         try:
             if parsed.path == "/health":
@@ -55,11 +60,16 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/admin/runtime":
                 self._require_auth("admin:runtime")
                 self._handle_admin_runtime()
+            elif parsed.path == "/api/admin/env":
+                self._require_auth("admin:env:get")
+                self._send_json({"status": True, "data": public_env_config(self.server.config)})
             elif parsed.path == "/api/logs":
                 self._require_auth("logs:get")
                 self._handle_logs(parsed)
             elif parsed.path == "/api/image-cache":
                 self._handle_image_cache(parsed)
+            elif parsed.path.startswith("/api/input-images/"):
+                self._handle_input_image(parsed.path)
             elif parsed.path.startswith("/api/images/"):
                 self._handle_local_image(parsed.path)
             elif parsed.path == "/api/jobs":
@@ -87,7 +97,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             self._send_json({"status": False, "message": redact(exc, self.server.config)}, 500)
 
     def do_DELETE(self) -> None:
-        self._debug_log_request("DELETE")
+        self._begin_request("DELETE")
         parsed = urlparse(self.path)
         try:
             if parsed.path.startswith("/api/images/"):
@@ -113,7 +123,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             self._send_json({"status": False, "message": redact(exc, self.server.config)}, 500)
 
     def do_POST(self) -> None:
-        self._debug_log_request("POST")
+        self._begin_request("POST")
         parsed = urlparse(self.path)
         try:
             if parsed.path == "/api/upload":
@@ -131,6 +141,9 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/admin/config":
                 self._require_auth("admin:config")
                 self._handle_admin_config()
+            elif parsed.path == "/api/admin/env":
+                self._require_auth("admin:env:set")
+                self._handle_admin_env()
             elif parsed.path == "/api/admin/restart":
                 self._require_auth("admin:restart")
                 self._handle_admin_restart()
@@ -237,6 +250,13 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
         self._audit("admin:config", "ok", {"APP_PORT": port})
         self._send_json({"status": True, "data": {"port": port, "restart_required": port != self.server.config.port}})
 
+    def _handle_admin_env(self) -> None:
+        body = self._read_json_body()
+        result = save_env_config(body)
+        self._audit("admin:env", "ok", {"updated": result.get("updated", []), "removed": result.get("removed", [])})
+        self.server.logger.info("环境配置已保存 updated=%s removed=%s backup=%s", result.get("updated", []), result.get("removed", []), result.get("backup_path", ""))
+        self._send_json({"status": True, "data": result})
+
     def _handle_admin_restart(self) -> None:
         self._audit("admin:restart", "ok", {"argv": sys.argv[:1]})
         threading.Thread(target=self._restart_process, name="admin-restart", daemon=True).start()
@@ -271,6 +291,26 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
         self._send_cors_headers()
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "public, max-age=86400")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _handle_input_image(self, request_path: str) -> None:
+        image_id = input_image_id_from_url(request_path)
+        if not image_id:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        try:
+            image = load_input_image(self.server.config.input_image_dir, image_id)
+        except KeyError:
+            self.send_error(HTTPStatus.NOT_FOUND)
+            return
+        data = image.path.read_bytes()
+        self.send_response(200)
+        self._send_cors_headers()
+        self.send_header("Content-Type", image.content_type)
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
@@ -365,18 +405,64 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
                 temp_path = temp_file.name
                 temp_file.write(file_data)
+            if self._should_store_upload_locally():
+                data = self._store_input_image(file_data, filename, mime_type, suffix)
+                provider, key_id = "local", ""
+            else:
+                data, provider, key_id = self._upload_input_image(temp_path, filename)
+            self._audit("upload", "ok", {"filename_hash": hashlib.sha256(filename.encode("utf-8", "ignore")).hexdigest()[:16], "provider": provider, "key_id": key_id})
+            self._send_json({"status": True, "data": data})
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    def _should_store_upload_locally(self) -> bool:
+        query = parse_qs(urlparse(self.path).query)
+        return query.get("storage", [""])[0] == "local"
+
+    def _store_input_image(self, file_data: bytes, filename: str, mime_type: str, suffix: str) -> dict:
+        image = store_input_image(self.server.config.input_image_dir, file_data, filename, mime_type, suffix)
+        return {
+            "id": image.id,
+            "url": self._absolute_url(f"/api/input-images/{image.id}/file"),
+            "provider": "local",
+            "filename": image.filename,
+            "mime_type": image.content_type,
+            "size": image.size,
+            "sha256": image.sha256,
+        }
+
+    def _upload_input_image(self, temp_path: str, filename: str) -> tuple[dict, str, str]:
+        default_error: Exception | None = None
+        key_id = ""
+        try:
             key = self.server.runner.key_pool.pick()
+            key_id = key.id
             client = BizyUpImage(
                 api_key=key.api_key,
                 retry_attempts=self.server.config.upload_retry_attempts,
                 retry_delay_seconds=self.server.config.upload_retry_delay_seconds,
             )
             data = client.upload(temp_path, file_name=filename)
-            self._audit("upload", "ok", {"filename_hash": hashlib.sha256(filename.encode("utf-8", "ignore")).hexdigest()[:16], "key_id": key.id})
-            self._send_json({"status": True, "data": data})
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                os.remove(temp_path)
+            if not self._extract_upload_url(data):
+                raise RuntimeError("BizyAir 上传成功但未能解析出图片 URL")
+            return data, "bizyair", key_id
+        except Exception as exc:
+            default_error = exc
+            self.server.logger.warning("默认上传失败，准备切换到 ImgBB: %s", redact(exc, self.server.config))
+
+        if not self.server.config.imgbb_api_key:
+            raise RuntimeError(f"默认上传失败，且未配置 IMGBB_API_KEY: {default_error}") from default_error
+
+        fallback = ImgBBUploader(
+            api_key=self.server.config.imgbb_api_key,
+            timeout=self.server.config.imgbb_timeout_seconds,
+        )
+        data = fallback.upload(temp_path, name=filename)
+        if not self._extract_upload_url(data):
+            raise RuntimeError("ImgBB 上传成功但未能解析出图片 URL")
+        self.server.logger.info("ImgBB 兜底上传完成: %s", filename)
+        return data, "imgbb", key_id
 
     def _read_multipart_file(self, content_length: int, content_type: str) -> tuple[str, str, bytes]:
         raw_body = self.rfile.read(content_length)
@@ -536,7 +622,10 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
                 if suffix not in ALLOWED_UPLOAD_EXTENSIONS:
                     self._send_openai_error("只允许上传 png、jpg、jpeg、webp、gif 图片", 400, param="image")
                     return
-            urls = self._upload_edit_images(image_files)
+            if self._should_store_openai_edit_images_locally(model):
+                urls = self._store_edit_images(image_files)
+            else:
+                urls = self._upload_edit_images(image_files)
             if not urls:
                 self._send_openai_error("图片上传失败", 502, type_="server_error", code="upstream_error")
                 return
@@ -582,13 +671,24 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             "image/gif": ".gif",
         }.get(str(item.get("mime") or "").lower(), "")
 
+    def _should_store_openai_edit_images_locally(self, model: str) -> bool:
+        provider = self.server.config.openai_provider_for_model(model)
+        return bool(provider and provider.send_reference_images_as_files)
+
+    def _store_edit_images(self, image_files: list[dict]) -> list[str]:
+        urls: list[str] = []
+        for item in image_files:
+            image = store_input_image(
+                self.server.config.input_image_dir,
+                item["data"],
+                item["filename"],
+                item.get("mime") or "",
+                self._image_suffix(item),
+            )
+            urls.append(self._absolute_url(f"/api/input-images/{image.id}/file"))
+        return urls
+
     def _upload_edit_images(self, image_files: list[dict]) -> list[str]:
-        key = self.server.runner.key_pool.pick()
-        client = BizyUpImage(
-            api_key=key.api_key,
-            retry_attempts=self.server.config.upload_retry_attempts,
-            retry_delay_seconds=self.server.config.upload_retry_delay_seconds,
-        )
         urls: list[str] = []
         for item in image_files:
             suffix = self._image_suffix(item)
@@ -597,7 +697,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
                     temp_path = temp_file.name
                     temp_file.write(item["data"])
-                data = client.upload(temp_path, file_name=item["filename"])
+                data, _provider, _key_id = self._upload_input_image(temp_path, item["filename"])
                 url = self._extract_upload_url(data)
                 if not url:
                     raise RuntimeError("上传成功但未能解析出图片 URL")
@@ -622,6 +722,9 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             prompt, urls = self._openai_messages_to_prompt_and_urls(body.get("messages"))
             params = self._openai_params(body, urls)
             params = validate_params(model, params, schemas)
+            if urls and not params.get("urls"):
+                self._send_openai_error("当前模型不支持提供的图片 URL", 400, param="messages")
+                return
             job = self._create_openai_job(model, prompt, params)
             result = self._wait_for_openai_job(job["id"])
         except ValueError as exc:
@@ -711,8 +814,8 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
                         url = image_url.get("url") if isinstance(image_url, dict) else None
                         if not isinstance(url, str) or not url:
                             raise ValueError("image_url.url 必须是字符串")
-                        if not url.startswith(("http://", "https://")):
-                            raise ValueError("image_url.url 只支持 http 或 https URL")
+                        if not self._is_supported_openai_image_url(url):
+                            raise ValueError("image_url.url 只支持 http/https、data:image 或本地图片 URL")
                         urls.append(url)
             elif content is not None:
                 raise ValueError("message.content 必须是字符串或数组")
@@ -733,6 +836,15 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
         if urls:
             params["urls"] = urls
         return params
+
+    @staticmethod
+    def _is_supported_openai_image_url(url: str) -> bool:
+        path = urlparse(url).path if url.startswith(("http://", "https://")) else url
+        return (
+            url.startswith(("http://", "https://"))
+            or url.lower().startswith("data:image/")
+            or path.startswith(("/api/input-images/", "/api/images/"))
+        )
 
     def _apply_openai_image_size(self, params: dict, size) -> None:
         if not isinstance(size, str):
@@ -826,6 +938,11 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             raise ValueError("请求体必须是 JSON 对象")
         self._debug_log_body_json(data)
         return data
+
+    def _begin_request(self, method: str) -> None:
+        self.request_id = uuid.uuid4().hex[:12]
+        self.request_started_at = time.monotonic()
+        self._debug_log_request(method)
 
     def _debug_log_request(self, method: str) -> None:
         if not self.server.config.debug_requests:
@@ -928,6 +1045,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
     def _send_json(self, payload: dict, status: int = 200) -> None:
         self._debug_log_response(status, payload)
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self._log_json_response(status, payload)
         self.send_response(status)
         self._send_cors_headers()
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -936,6 +1054,34 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _log_json_response(self, status: int, payload: dict) -> None:
+        path = urlparse(self.path).path
+        if not path.startswith(("/api/", "/v1/")) and path != "/health":
+            return
+        duration_ms = int((time.monotonic() - getattr(self, "request_started_at", time.monotonic())) * 1000)
+        message = ""
+        if isinstance(payload, dict):
+            message = payload.get("message") or ""
+            error = payload.get("error")
+            if not message and isinstance(error, dict):
+                message = error.get("message") or ""
+        if status >= 400:
+            level = logging.WARNING
+        elif path in {"/api/admin/runtime", "/api/jobs"}:
+            level = logging.DEBUG
+        else:
+            level = logging.INFO
+        self.server.logger.log(
+            level,
+            "request_id=%s method=%s path=%s status=%s duration_ms=%s message=%s",
+            getattr(self, "request_id", "-"),
+            self.command,
+            path,
+            status,
+            duration_ms,
+            redact(message, self.server.config),
+        )
 
     def _send_cors_headers(self) -> None:
         origin = self.headers.get("Origin", "").rstrip("/")
@@ -954,6 +1100,21 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
                 for key in self.server.config.bizyair_keys
             ],
             "models": list(get_model_schemas(self.server.config).keys()),
+            "openai_providers": [
+                {
+                    "id": provider.id,
+                    "label": provider.label or provider.id,
+                    "models": list(provider.models),
+                    "concurrency": provider.concurrency,
+                    "send_reference_images_as_files": provider.send_reference_images_as_files,
+                }
+                for provider in self.server.config.openai_providers.values()
+            ],
+            "openai_compatible_send_reference_images_as_files": (
+                self.server.config.openai_compatible.send_reference_images_as_files
+                if self.server.config.openai_compatible
+                else True
+            ),
         }
 
     @staticmethod

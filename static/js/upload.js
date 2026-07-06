@@ -376,7 +376,11 @@
       }
 
       function getInputUrls() {
-        return $("urls").value.split(/\n+/).map((u) => u.trim()).filter((u) => /^https?:\/\//.test(u));
+        return $("urls").value.split(/\n+/).map((u) => u.trim()).filter(isValidInputUrl);
+      }
+
+      function isValidInputUrl(url) {
+        return /^https?:\/\//.test(url) || isLocalInputImageUrl(url);
       }
 
       function getUploadedInputUrls(inputUrls = getInputUrls()) {
@@ -405,9 +409,11 @@
         const maxUrls = Number(schema.maxUrls || 0);
         const submissionInputCount = (selectedMainImageUrls.length ? 1 : 0) + selectedReferenceUrls.length;
         const parts = [`模型 ${modelDisplayName(modelEl.value) || "--"}`];
-        if (schema.sizes?.length) parts.push(`尺寸 ${$("size").value || "--"}`);
+        if (isThirdPartyModel()) parts.push(thirdPartyReferenceImagesAsFiles ? "参考图本机文件发送" : "参考图 URL 发送");
+        if (schema.sizes?.length && !schema.sizeFromResolution) parts.push(`尺寸 ${$("size").value || "--"}`);
         if (schema.aspectRatios?.length) parts.push(`比例 ${$("aspectRatio").value || "--"}`);
         if (schema.resolutions?.length) parts.push(`分辨率 ${$("resolution").value || "--"}`);
+        if (schema.sizeFromResolution) parts.push(`输出 ${resolveSizeFromSchema(schema, $("resolution").value, $("aspectRatio").value) || "--"}`);
         if (schema.qualities?.length) parts.push(`质量 ${$("quality").value || "--"}`);
         if (schema.outputFormats?.length) parts.push(`格式 ${$("outputFormat").value || "--"}`);
         if (schema.moderations?.length) parts.push(`审核 ${$("moderation").value || "--"}`);
@@ -547,7 +553,8 @@
       async function uploadFile(file) {
         const form = new FormData();
         form.append("file", file);
-        const response = await apiRequest("/api/upload", { method: "POST", body: form });
+        const useLocalStorage = thirdPartyReferenceImagesAsFiles && isThirdPartyModel();
+        const response = await apiRequest(useLocalStorage ? "/api/upload?storage=local" : "/api/upload", { method: "POST", body: form });
         return response.data;
       }
 
@@ -573,7 +580,7 @@
       function extractInputUrls(data) { const urls = []; collectUrls(data, urls); return [...new Set(urls)]; }
 
       function findFirstUrl(value) {
-        if (typeof value === "string" && /^https?:\/\//.test(value)) return value;
+        if (typeof value === "string" && isValidInputUrl(value)) return value;
         if (Array.isArray(value)) { for (const item of value) { const u = findFirstUrl(item); if (u) return u; } }
         if (value && typeof value === "object") {
           for (const key of ["url", "uri", "src", "download_url", "resource_url", "object_url"]) { const u = findFirstUrl(value[key]); if (u) return u; }
@@ -583,7 +590,7 @@
       }
 
       function collectUrls(value, urls) {
-        if (typeof value === "string" && /^https?:\/\//.test(value)) { urls.push(value); return; }
+        if (typeof value === "string" && isValidInputUrl(value)) { urls.push(value); return; }
         if (Array.isArray(value)) value.forEach((i) => collectUrls(i, urls));
         else if (value && typeof value === "object") Object.values(value).forEach((i) => collectUrls(i, urls));
       }

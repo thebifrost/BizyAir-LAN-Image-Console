@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 
 from .config import AppConfig
+from .image_data import parse_image_data_url
 from .schemas import ALLOWED_CACHE_IMAGE_TYPES
 
 class ImageCache:
@@ -47,6 +48,28 @@ class ImageCache:
         with self._lock_for(f"result-{image_id}"):
             path, content_type, extension, size, digest = self._download_to_directory(url, image_id, self.result_dir)
             return {"local_path": str(path), "content_type": content_type, "extension": extension, "size": size, "sha256": digest, "original_url": url}
+
+    def archive_result_data_url(self, data_url: str, image_id: str) -> dict:
+        with self._lock_for(f"result-{image_id}"):
+            data, content_type, extension = parse_image_data_url(data_url, self.config.image_cache_max_bytes)
+            final_path = self._safe_image_path(self.result_dir, image_id, extension)
+            temp_path = final_path.with_suffix(final_path.suffix + ".tmp")
+            digest = hashlib.sha256(data).hexdigest()
+            try:
+                temp_path.write_bytes(data)
+                temp_path.replace(final_path)
+            finally:
+                with contextlib.suppress(FileNotFoundError):
+                    if temp_path.exists():
+                        temp_path.unlink()
+            return {
+                "local_path": str(final_path),
+                "content_type": content_type,
+                "extension": extension,
+                "size": len(data),
+                "sha256": digest,
+                "original_url": f"/api/images/{image_id}",
+            }
 
     @contextlib.contextmanager
     def _lock_for(self, key: str):

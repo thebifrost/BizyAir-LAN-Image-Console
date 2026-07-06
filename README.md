@@ -231,6 +231,9 @@ http://127.0.0.1:8787
 | `WORKER_THREADS` | `32` | 后台 worker 数量。数字越大并发越高，也更容易触发上游限流或消耗额度。 |
 | `POLL_INTERVAL_SECONDS` | `5` | 轮询 BizyAir 任务状态的间隔，最小 0.5 秒。 |
 | `MAX_POLL_SECONDS` | `1800` | 单个子任务最大轮询时间，最小 30 秒。超时后标记失败。 |
+| `LOG_LEVEL` | `INFO` | 应用日志级别，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`。 |
+| `LOG_MAX_MB` | `5` | 单个 `app.log` 文件大小上限。 |
+| `LOG_BACKUP_COUNT` | `5` | `app.log` 轮转保留份数。 |
 
 ### 上传与存储配置
 
@@ -239,9 +242,20 @@ http://127.0.0.1:8787
 | `MAX_UPLOAD_MB` | `20` | 单个上传文件大小上限，代码内硬上限为 20 MB。 |
 | `UPLOAD_RETRY_ATTEMPTS` | `2` | 上传失败后额外重试次数，`0` 表示不重试。 |
 | `UPLOAD_RETRY_DELAY_SECONDS` | `1` | 上传失败后每次重试前等待秒数。 |
+| `IMGBB_API_KEY` | 空 | 默认 BizyAir 上传失败后的 ImgBB 图床兜底 Key；为空时不启用兜底。 |
+| `IMGBB_TIMEOUT_SECONDS` | `30` | ImgBB 兜底上传请求超时时间。 |
+| `OPENAI_COMPAT_MODELS` | 空 | 第三方模型列表；可用 `本地别名=上游真实模型名` 避免和 BizyAir 模型重名，例如 `moyuu-gpt-image-2=gpt-image-2`。 |
+| `OPENAI_COMPAT_SEND_REFERENCE_IMAGES_AS_FILES` | `true` | 第三方 OpenAI-compatible 模型有参考图时，使用 `/images/edits` multipart 文件发送参考图；关闭后沿用 URL 文本发送。 |
+| `OPENAI_COMPAT_CONCURRENCY` | `0` | 旧版单第三方 provider 的并发上限，`0` 表示不限流。 |
+| `OPENAI_COMPAT_PROVIDERS` | 空 | 多第三方 provider id 列表，例如 `moyuu,openrouter`。设置后优先使用 provider 专属变量。 |
+| `OPENAI_COMPAT_<ID>_API_KEY` | 空 | 指定 provider 的 API Key，`<ID>` 为 provider id 转大写并把非字母数字替换成 `_`。 |
+| `OPENAI_COMPAT_<ID>_BASE_URL` | 空 | 指定 provider 的 OpenAI-compatible Base URL，应包含 `/v1`。 |
+| `OPENAI_COMPAT_<ID>_MODELS` | 空 | 指定 provider 的模型映射，例如 `moyuu-gpt-image-2=gpt-image-2`。不同 provider 的本地模型别名不能重复。 |
+| `OPENAI_COMPAT_<ID>_CONCURRENCY` | `0` | 指定 provider 的并发上限，适合按第三方限流策略控制。 |
 | `DATA_DIR` | `./data` | SQLite 数据库与结果图片目录。 |
 | `LOG_DIR` | `./logs` | 日志目录。 |
 | `RESULT_IMAGE_DIR` | `DATA_DIR/result-images` | 生成结果图本地归档目录。 |
+| `INPUT_IMAGE_DIR` | `DATA_DIR/input-images` | 第三方参考图本机暂存目录。 |
 
 ### 图片缓存配置
 
@@ -352,6 +366,8 @@ Ctrl+C
 - `Base URL`：当前服务对外提供的 OpenAI 兼容接口地址，通常是 `http://127.0.0.1:8787/v1` 或局域网访问地址加 `/v1`。
 - `队列`：当前数据库中仍处于 `queued` 或 `running` 的活跃子任务数量。该数值包含已被 worker 取走但仍在生成中的任务，不只是内存队列长度。
 - `端口`：写入 `.env` 中的 `APP_PORT`。保存后不会立刻迁移当前进程端口，需要重启服务。
+- `配置`：结构化编辑 `.env` 中的常用配置项。敏感字段不会回显明文，留空表示不修改。
+- `Provider`：新增、移除或修改多个 OpenAI-compatible 第三方 provider。保存时会备份 `.env`，并在重启后生效。
 - `重启`：请求后端重启当前服务。重启前会停止接收新队列并等待已入队任务处理完成，减少正在执行的上游任务被重复提交的概率。
 - `刷新`：刷新运行状态、Base URL、队列数量和新增外部 OpenAI 任务。
 

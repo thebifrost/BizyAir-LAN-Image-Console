@@ -41,33 +41,63 @@ class UpstreamClient:
         return wallet, metadata, self.json_response(wallet), self.json_response(metadata)
 
     @staticmethod
-    def openai_headers(provider: OpenAICompatibleConfig) -> dict:
-        return {
+    def openai_headers(provider: OpenAICompatibleConfig, content_type: str | None = "application/json") -> dict:
+        headers = {
             "accept": "application/json",
-            "content-type": "application/json",
             "Authorization": f"Bearer {provider.api_key}",
         }
+        if content_type:
+            headers["content-type"] = content_type
+        return headers
 
-    def create_openai_image(self, provider: OpenAICompatibleConfig, model: str, payload: dict) -> tuple[requests.Response, dict]:
+    def create_openai_image(self, provider: OpenAICompatibleConfig, model: str, payload: dict, reference_images: list[dict] | None = None) -> tuple[requests.Response, dict]:
+        reference_images = reference_images or []
+        if reference_images:
+            return self._create_openai_image_edit(provider, model, payload, reference_images)
+        return self._create_openai_image_generation(provider, model, payload)
+
+    def _openai_image_body(self, model: str, payload: dict, include_reference_urls: bool) -> dict:
         prompt = str(payload.get("prompt") or "")
         urls = payload.get("urls") if isinstance(payload.get("urls"), list) else []
-        if urls:
+        if include_reference_urls and urls:
             prompt = f"{prompt}\n\nReference images:\n" + "\n".join(str(url) for url in urls)
         body = {
             "model": model,
             "prompt": prompt,
             "response_format": "url",
         }
-        variants = payload.get("variants")
+        variants = payload.get("variants", 1)
         if variants:
             body["n"] = variants
         for key in ("size", "quality", "aspect_ratio", "resolution", "style", "background", "moderation", "output_format", "output_compression", "seed", "temperature", "top_p"):
+            if payload.get("size") and key in {"aspect_ratio", "resolution"}:
+                continue
             if key in payload and payload[key] not in (None, ""):
                 body[key] = payload[key]
+        return body
+
+    def _create_openai_image_generation(self, provider: OpenAICompatibleConfig, model: str, payload: dict) -> tuple[requests.Response, dict]:
+        body = self._openai_image_body(model, payload, include_reference_urls=True)
         response = self.session.post(
             f"{provider.base_url}/images/generations",
             json=body,
             headers=self.openai_headers(provider),
+            timeout=provider.timeout_seconds,
+        )
+        return response, self.json_response(response)
+
+    def _create_openai_image_edit(self, provider: OpenAICompatibleConfig, model: str, payload: dict, reference_images: list[dict]) -> tuple[requests.Response, dict]:
+        body = self._openai_image_body(model, payload, include_reference_urls=False)
+        files = []
+        for index, image in enumerate(reference_images):
+            filename = str(image.get("filename") or f"input-{index + 1}.png")
+            content_type = str(image.get("content_type") or "application/octet-stream")
+            files.append(("image[]", (filename, image["data"], content_type)))
+        response = self.session.post(
+            f"{provider.base_url}/images/edits",
+            data={key: str(value) for key, value in body.items() if value not in (None, "")},
+            files=files,
+            headers=self.openai_headers(provider, content_type=None),
             timeout=provider.timeout_seconds,
         )
         return response, self.json_response(response)

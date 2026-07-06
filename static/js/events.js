@@ -15,10 +15,11 @@
         $("seed").addEventListener("input", debounce(() => { saveConfig(); updateSubmitHint(); }, 500));
         $("autoRetryEnabled").addEventListener("change", () => { autoRetryEnabled = $("autoRetryEnabled").value === "true"; saveConfig(); });
         $("autoRetryMaxAttempts").addEventListener("input", debounce(() => { autoRetryMaxAttempts = Math.max(0, Math.min(10, Number($("autoRetryMaxAttempts").value) || 0)); $("autoRetryMaxAttempts").value = String(autoRetryMaxAttempts); saveConfig(); }, 250));
+        $("thirdPartyReferenceImagesAsFiles").addEventListener("change", () => { thirdPartyReferenceImagesAsFiles = $("thirdPartyReferenceImagesAsFiles").value !== "false"; refreshImageSelectors(); saveConfig(); });
         $("randomSeed").addEventListener("click", () => setSeedValue(Math.floor(Math.random() * 2147483648)));
         $("resetSeed").addEventListener("click", () => setSeedValue(0));
 
-        $("openRuntimeSettings").addEventListener("click", () => { $("runtimeDialog").showModal(); refreshRuntime(false); });
+        $("openRuntimeSettings").addEventListener("click", () => { $("runtimeDialog").showModal(); switchRuntimeTab("status"); refreshRuntime(false); });
         $("closeRuntimeSettings").addEventListener("click", () => $("runtimeDialog").close());
         $("openAuth").addEventListener("click", () => { $("tokenInput").value = authToken; $("authDialog").showModal(); });
         $("closeAuth").addEventListener("click", () => $("authDialog").close());
@@ -28,6 +29,11 @@
         $("refreshRuntime").addEventListener("click", () => refreshRuntime(true));
         $("saveRuntimePort").addEventListener("click", saveRuntimePort);
         $("restartServer").addEventListener("click", restartServer);
+        $("runtimeTabStatus").addEventListener("click", () => switchRuntimeTab("status"));
+        $("runtimeTabEnv").addEventListener("click", () => switchRuntimeTab("env"));
+        $("runtimeTabProviders").addEventListener("click", () => switchRuntimeTab("providers"));
+        $("saveEnvConfig").addEventListener("click", saveEnvConfig);
+        $("addOpenaiProvider").addEventListener("click", addOpenaiProviderCard);
         $("loadAppLog").addEventListener("click", () => loadServerLog("app"));
         $("loadAuditLog").addEventListener("click", () => loadServerLog("audit"));
         $("refreshJobs").addEventListener("click", loadGateway);

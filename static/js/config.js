@@ -21,6 +21,7 @@
           nextMainImageIndex,
           autoRetryEnabled,
           autoRetryMaxAttempts,
+          thirdPartyReferenceImagesAsFiles,
         };
         try { localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config)); } catch {}
       }
@@ -71,8 +72,10 @@
         nextMainImageIndex = Number.isInteger(config.nextMainImageIndex) ? config.nextMainImageIndex : 0;
         if ("autoRetryEnabled" in config) autoRetryEnabled = config.autoRetryEnabled !== false;
         autoRetryMaxAttempts = Math.max(0, Math.min(10, Number(config.autoRetryMaxAttempts ?? autoRetryMaxAttempts) || 0));
+        if ("thirdPartyReferenceImagesAsFiles" in config) thirdPartyReferenceImagesAsFiles = config.thirdPartyReferenceImagesAsFiles !== false;
         $("autoRetryEnabled").value = String(autoRetryEnabled);
         $("autoRetryMaxAttempts").value = String(autoRetryMaxAttempts);
+        $("thirdPartyReferenceImagesAsFiles").value = String(thirdPartyReferenceImagesAsFiles);
         refreshImageSelectors();
       }
 

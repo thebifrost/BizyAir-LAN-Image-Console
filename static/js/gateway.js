@@ -8,13 +8,18 @@
             apiRequest("/api/admin/runtime"),
           ]);
           const config = configResponse.data || {};
+          const savedConfig = loadSavedConfig();
+          if (!savedConfig || !("thirdPartyReferenceImagesAsFiles" in savedConfig)) {
+            thirdPartyReferenceImagesAsFiles = config.openai_compatible_send_reference_images_as_files !== false;
+            $("thirdPartyReferenceImagesAsFiles").value = String(thirdPartyReferenceImagesAsFiles);
+          }
           pollInterval = Math.max(Number(config.poll_interval_seconds || 5) * 1000, 1000);
           maxUploadBytes = Math.max(Number(config.max_upload_mb || DEFAULT_MAX_UPLOAD_MB), 1) * 1024 * 1024;
           if (modelsResponse.data && Object.keys(modelsResponse.data).length) {
             const previousModel = modelEl.value;
             modelSchemas = modelsResponse.data;
             renderModels(previousModel);
-            applySavedConfig(loadSavedConfig(), { includePrompt: false });
+            applySavedConfig(savedConfig, { includePrompt: false });
           }
           const jobs = jobsResponse.data || [];
           renderHistory(jobs);
@@ -36,7 +41,19 @@
         const current = preferredModel || modelEl.value;
         const names = Object.keys(modelSchemas);
         modelEl.innerHTML = "";
-        names.forEach((name) => modelEl.add(new Option(modelDisplayName(name), name)));
+        const groups = new Map();
+        names.forEach((name) => {
+          const schema = modelSchemas[name] || {};
+          const groupName = schema.provider === "bizyair" || !schema.provider ? "BizyAir" : (schema.providerLabel || schema.provider || "第三方");
+          if (!groups.has(groupName)) groups.set(groupName, []);
+          groups.get(groupName).push(name);
+        });
+        groups.forEach((models, groupName) => {
+          const group = document.createElement("optgroup");
+          group.label = groupName;
+          models.forEach((name) => group.appendChild(new Option(modelDisplayName(name), name)));
+          modelEl.appendChild(group);
+        });
         modelEl.value = names.includes(current) ? current : names[0];
         renderHistoryFilters();
       }
@@ -46,7 +63,12 @@
         $("gatewayStatus").textContent = authToken ? "已认证" : "待认证";
         if (config) {
           const keys = Array.isArray(config.bizyair_keys) ? config.bizyair_keys : [];
-          const keyText = keys.length ? ` · ${keys.length} 个 Key · 工作线程 ${config.worker_threads || "--"}` : "";
+          const providers = Array.isArray(config.openai_providers) ? config.openai_providers : [];
+          const keyParts = [];
+          if (keys.length) keyParts.push(`${keys.length} 个 Key`);
+          if (providers.length) keyParts.push(`${providers.length} 个第三方`);
+          keyParts.push(`工作线程 ${config.worker_threads || "--"}`);
+          const keyText = ` · ${keyParts.join(" · ")}`;
           $("activeKey").textContent = authToken ? `已认证${keyText}` : "待认证";
           $("gatewayStatus").textContent = authToken ? `已认证${keyText}` : "待认证";
         }

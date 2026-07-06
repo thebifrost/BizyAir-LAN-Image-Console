@@ -1,8 +1,17 @@
       /* ---- Utilities ---- */
       function delay(ms) { return new Promise((r) => setTimeout(r, ms)); }
       function cachedImageUrl(url) {
+        if (isLocalInputImageUrl(url)) return url || "";
         if (!url || !/^https?:\/\//.test(url)) return url || "";
         return `/api/image-cache?url=${encodeURIComponent(url)}`;
+      }
+      function isLocalInputImageUrl(url) {
+        try {
+          const path = new URL(url, location.origin).pathname;
+          return path.startsWith("/api/input-images/") || path.startsWith("/api/images/");
+        } catch {
+          return false;
+        }
       }
       function cachedImageAttrs(url, options = {}) {
         const cached = cachedImageUrl(url);
