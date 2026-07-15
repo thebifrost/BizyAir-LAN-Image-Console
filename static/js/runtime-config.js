@@ -89,7 +89,7 @@
             <div class="env-field wide"><label>模型映射</label><textarea data-provider-field="models" rows="3" placeholder="local-alias=upstream-model">${escapeHtml(provider.models || "")}</textarea></div>
             ${providerInput("timeout_seconds", "超时秒", provider.timeout_seconds ?? 300, "300", "", "number")}
             ${providerInput("concurrency", "并发上限", provider.concurrency ?? 0, "0", "", "number")}
-            <div class="env-field"><label>参考图发送</label><select data-provider-field="send_reference_images_as_files"><option value="true"${provider.send_reference_images_as_files !== false ? " selected" : ""}>文件 multipart</option><option value="false"${provider.send_reference_images_as_files === false ? " selected" : ""}>URL 文本</option></select></div>
+            <div class="env-field"><label>参考图发送</label><select data-provider-field="send_reference_images_as_files"><option value="false"${provider.send_reference_images_as_files !== true ? " selected" : ""}>URL 文本</option><option value="true"${provider.send_reference_images_as_files === true ? " selected" : ""}>文件 multipart</option></select></div>
           </div>
         </article>`;
       }
@@ -106,7 +106,7 @@
           base_url: "",
           models: "",
           timeout_seconds: 300,
-          send_reference_images_as_files: true,
+          send_reference_images_as_files: false,
           concurrency: 0,
         });
         renderProviderConfigList(current);
@@ -124,7 +124,7 @@
             models: read("models"),
             timeout_seconds: Number(read("timeout_seconds") || 300),
             concurrency: Number(read("concurrency") || 0),
-            send_reference_images_as_files: read("send_reference_images_as_files") !== "false",
+            send_reference_images_as_files: read("send_reference_images_as_files") === "true",
           };
         }).filter((provider) => options.allowEmpty || provider.id || provider.base_url || provider.models || provider.api_key);
       }
@@ -146,6 +146,7 @@
           const response = await apiRequest("/api/admin/env", { method: "POST", body: payload });
           envConfigSnapshot = null;
           await loadEnvConfig();
+          await loadGateway();
           const restartText = response.data?.restart_required ? "，重启后生效" : "";
           toast(`配置已保存${restartText}。`);
           log(`环境配置已保存${restartText}。`, "success");

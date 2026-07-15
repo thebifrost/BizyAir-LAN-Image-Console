@@ -1,6 +1,16 @@
+import threading
+import time
+from urllib.parse import urljoin
+
 import requests
 
 from .config import AppConfig, BizyAirKeyConfig, CLIENT_VERSION, OpenAICompatibleConfig
+
+OPENAI_TRANSIENT_ERRORS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    requests.exceptions.SSLError,
+)
 
 class UpstreamClient:
     def __init__(self, config: AppConfig):
@@ -8,6 +18,16 @@ class UpstreamClient:
         self.wallet_url = config.bizyair_wallet_url
         self.metadata_url = config.bizyair_metadata_url
         self.session = requests.Session()
+        self._thread_local = threading.local()
+
+    def _session(self):
+        if not isinstance(self.session, requests.Session):
+            return self.session
+        session = getattr(self._thread_local, "session", None)
+        if session is None:
+            session = requests.Session()
+            self._thread_local.session = session
+        return session
 
     @staticmethod
     def headers(key: BizyAirKeyConfig) -> dict:
@@ -27,17 +47,18 @@ class UpstreamClient:
             return {"raw": response.text}
 
     def post(self, path: str, key: BizyAirKeyConfig, payload: dict, timeout: int = 60) -> tuple[requests.Response, dict]:
-        response = self.session.post(f"{self.base_url}{path}", json=payload, headers=self.headers(key), timeout=timeout)
+        response = self._session().post(f"{self.base_url}{path}", json=payload, headers=self.headers(key), timeout=timeout)
         return response, self.json_response(response)
 
     def get(self, path: str, key: BizyAirKeyConfig, timeout: int = 60) -> tuple[requests.Response, dict]:
-        response = self.session.get(f"{self.base_url}{path}", headers=self.headers(key), timeout=timeout)
+        response = self._session().get(f"{self.base_url}{path}", headers=self.headers(key), timeout=timeout)
         return response, self.json_response(response)
 
     def get_account(self, key: BizyAirKeyConfig) -> tuple[requests.Response, requests.Response, dict, dict]:
         headers = {"Authorization": f"Bearer {key.api_key}", "accept": "application/json"}
-        wallet = self.session.get(self.wallet_url, headers=headers, timeout=30)
-        metadata = self.session.get(self.metadata_url, headers=headers, timeout=30)
+        session = self._session()
+        wallet = session.get(self.wallet_url, headers=headers, timeout=30)
+        metadata = session.get(self.metadata_url, headers=headers, timeout=30)
         return wallet, metadata, self.json_response(wallet), self.json_response(metadata)
 
     @staticmethod
@@ -50,11 +71,29 @@ class UpstreamClient:
             headers["content-type"] = content_type
         return headers
 
+    def _openai_request(self, method: str, url: str, provider: OpenAICompatibleConfig, **kwargs) -> requests.Response:
+        last_error = None
+        session = self._session()
+        request = getattr(session, method.lower())
+        for attempt in range(1, 4):
+            try:
+                return request(url, timeout=provider.timeout_seconds, **kwargs)
+            except OPENAI_TRANSIENT_ERRORS as exc:
+                last_error = exc
+                if attempt >= 3:
+                    raise
+                time.sleep(min(2 * attempt, 5))
+        raise last_error
+
     def create_openai_image(self, provider: OpenAICompatibleConfig, model: str, payload: dict, reference_images: list[dict] | None = None) -> tuple[requests.Response, dict]:
         reference_images = reference_images or []
         if reference_images:
-            return self._create_openai_image_edit(provider, model, payload, reference_images)
-        return self._create_openai_image_generation(provider, model, payload)
+            response, data = self._create_openai_image_edit(provider, model, payload, reference_images)
+        else:
+            response, data = self._create_openai_image_generation(provider, model, payload)
+        if response.ok and is_openai_image_job_response(data):
+            return self._poll_openai_image_job(provider, data)
+        return response, data
 
     def _openai_image_body(self, model: str, payload: dict, include_reference_urls: bool) -> dict:
         prompt = str(payload.get("prompt") or "")
@@ -64,7 +103,7 @@ class UpstreamClient:
         body = {
             "model": model,
             "prompt": prompt,
-            "response_format": "url",
+            "response_format": "b64_json",
         }
         variants = payload.get("variants", 1)
         if variants:
@@ -78,11 +117,12 @@ class UpstreamClient:
 
     def _create_openai_image_generation(self, provider: OpenAICompatibleConfig, model: str, payload: dict) -> tuple[requests.Response, dict]:
         body = self._openai_image_body(model, payload, include_reference_urls=True)
-        response = self.session.post(
+        response = self._openai_request(
+            "POST",
             f"{provider.base_url}/images/generations",
+            provider,
             json=body,
             headers=self.openai_headers(provider),
-            timeout=provider.timeout_seconds,
         )
         return response, self.json_response(response)
 
@@ -93,30 +133,166 @@ class UpstreamClient:
             filename = str(image.get("filename") or f"input-{index + 1}.png")
             content_type = str(image.get("content_type") or "application/octet-stream")
             files.append(("image[]", (filename, image["data"], content_type)))
-        response = self.session.post(
+        response = self._openai_request(
+            "POST",
             f"{provider.base_url}/images/edits",
+            provider,
             data={key: str(value) for key, value in body.items() if value not in (None, "")},
             files=files,
             headers=self.openai_headers(provider, content_type=None),
-            timeout=provider.timeout_seconds,
         )
         return response, self.json_response(response)
 
+    def _poll_openai_image_job(self, provider: OpenAICompatibleConfig, data: dict) -> tuple[requests.Response, dict]:
+        deadline = time.monotonic() + provider.timeout_seconds
+        current_data = data
+        result_url = openai_image_job_result_url(current_data)
+        status_url = openai_image_job_status_url(current_data)
+        response = None
+        while True:
+            delay = openai_image_job_retry_after(current_data)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"OpenAI-compatible image job polling timed out: {current_data}")
+            time.sleep(min(delay, remaining))
+            target = status_url or result_url
+            if not target:
+                raise RuntimeError(f"OpenAI-compatible image job response missing result_url/status_url: {current_data}")
+            response = self._openai_request(
+                "GET",
+                self._openai_job_url(provider, target),
+                provider,
+                headers=self.openai_headers(provider, content_type=None),
+            )
+            current_data = self.json_response(response)
+            if not response.ok:
+                if is_openai_image_job_not_ready(current_data):
+                    result_url = openai_image_job_result_url(current_data) or result_url
+                    status_url = openai_image_job_status_url(current_data) or status_url
+                    continue
+                return response, current_data
+            if normalize_openai_image_result(current_data, base_url=provider.base_url).get("outputs", {}).get("images"):
+                return response, current_data
+            status = openai_image_job_status(current_data)
+            result_url = openai_image_job_result_url(current_data) or result_url
+            status_url = openai_image_job_status_url(current_data) or status_url
+            if status in {"succeeded", "completed", "success"} and result_url:
+                response = self._openai_request(
+                    "GET",
+                    self._openai_job_url(provider, result_url),
+                    provider,
+                    headers=self.openai_headers(provider, content_type=None),
+                )
+                current_data = self.json_response(response)
+                if not response.ok and is_openai_image_job_not_ready(current_data):
+                    continue
+                return response, current_data
+            if status in {"failed", "cancelled", "canceled", "error"}:
+                return response, current_data
 
-def normalize_openai_image_result(data: dict, output_format: str = "png") -> dict:
+    @staticmethod
+    def _openai_job_url(provider: OpenAICompatibleConfig, path_or_url: str) -> str:
+        if path_or_url.startswith(("http://", "https://")):
+            return path_or_url
+        return urljoin(f"{provider.base_url.rstrip('/')}/", path_or_url)
+
+
+def normalize_openai_image_result(data: dict, output_format: str = "png", base_url: str = "") -> dict:
     mime = {"jpeg": "image/jpeg", "jpg": "image/jpeg", "webp": "image/webp", "png": "image/png"}.get(output_format, "image/png")
     images: list[str] = []
-    for item in data.get("data", []) if isinstance(data, dict) else []:
-        if not isinstance(item, dict):
-            continue
-        url = item.get("url")
-        if isinstance(url, str) and url:
-            images.append(url)
-            continue
-        b64_json = item.get("b64_json")
-        if isinstance(b64_json, str) and b64_json:
-            images.append(f"data:{mime};base64,{b64_json}")
+    collect_openai_images(data, mime, images, base_url)
     return {"status": "succeeded", "outputs": {"images": images}, "raw": data}
+
+
+def collect_openai_images(value, mime: str, images: list[str], base_url: str = "") -> None:
+    if isinstance(value, list):
+        for item in value:
+            collect_openai_images(item, mime, images, base_url)
+        return
+    if not isinstance(value, dict):
+        return
+    url = value.get("url")
+    if isinstance(url, str) and url:
+        image_url = normalize_openai_image_url(url, base_url)
+        if image_url:
+            images.append(image_url)
+    b64_json = value.get("b64_json")
+    if isinstance(b64_json, str) and b64_json:
+        images.append(f"data:{mime};base64,{b64_json}")
+    image_values = value.get("images")
+    if isinstance(image_values, list):
+        for image in image_values:
+            if isinstance(image, str) and image:
+                image_url = normalize_openai_image_url(image, base_url)
+                if image_url:
+                    images.append(image_url)
+            else:
+                collect_openai_images(image, mime, images, base_url)
+    outputs = value.get("outputs")
+    if isinstance(outputs, dict):
+        collect_openai_images(outputs, mime, images, base_url)
+    for key in ("data", "result", "response"):
+        nested = value.get(key)
+        if isinstance(nested, (dict, list)):
+            collect_openai_images(nested, mime, images, base_url)
+
+
+def normalize_openai_image_url(value: str, base_url: str = "") -> str:
+    value = value.strip()
+    if not value:
+        return ""
+    if value.startswith(("http://", "https://", "data:image/")):
+        return value
+    if base_url:
+        return urljoin(f"{base_url.rstrip('/')}/", value)
+    return value
+
+
+def is_openai_image_job_response(data: dict) -> bool:
+    if not isinstance(data, dict):
+        return False
+    return bool(data.get("job_id") and (data.get("result_url") or data.get("status_url")))
+
+
+def openai_image_job_status(data: dict) -> str:
+    if not isinstance(data, dict):
+        return ""
+    status = data.get("status") or data.get("state")
+    return str(status or "").strip().lower()
+
+
+def openai_image_job_result_url(data: dict) -> str:
+    if not isinstance(data, dict):
+        return ""
+    value = data.get("result_url")
+    return str(value or "").strip()
+
+
+def openai_image_job_status_url(data: dict) -> str:
+    if not isinstance(data, dict):
+        return ""
+    value = data.get("status_url")
+    return str(value or "").strip()
+
+
+def openai_image_job_retry_after(data: dict) -> float:
+    if not isinstance(data, dict):
+        return 2.0
+    try:
+        value = float(data.get("retry_after") or 2)
+    except (TypeError, ValueError):
+        value = 2.0
+    return min(max(value, 0.25), 30.0)
+
+
+def is_openai_image_job_not_ready(data: dict) -> bool:
+    if not isinstance(data, dict):
+        return False
+    error = data.get("error") if isinstance(data.get("error"), dict) else {}
+    code = str(error.get("code") or data.get("code") or "").strip().upper()
+    message = str(error.get("message") or data.get("message") or "").strip().lower()
+    return code == "IMAGE_JOB_NOT_READY" or "job is not finished" in message or "not ready" in message
+
 
 def summarize_account(wallet: dict, metadata: dict) -> dict:
     wallet_data = wallet.get("data", {}) if isinstance(wallet, dict) else {}

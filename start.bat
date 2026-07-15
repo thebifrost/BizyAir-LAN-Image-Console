@@ -6,5 +6,11 @@ if not exist .env (
   pause
   exit /b 1
 )
+:run
 python upload_server.py
-pause
+set EXIT_CODE=%ERRORLEVEL%
+echo.
+echo Service exited with code %EXIT_CODE%.
+echo Restarting in 5 seconds. Press Ctrl+C to stop.
+timeout /t 5 /nobreak >nul
+goto run

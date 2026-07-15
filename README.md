@@ -250,7 +250,7 @@ http://127.0.0.1:8787
 | `IMGBB_API_KEY` | 空 | 默认 BizyAir 上传失败后的 ImgBB 图床兜底 Key；为空时不启用兜底。 |
 | `IMGBB_TIMEOUT_SECONDS` | `30` | ImgBB 兜底上传请求超时时间。 |
 | `OPENAI_COMPAT_MODELS` | 空 | 第三方模型列表；可用 `本地别名=上游真实模型名` 避免和 BizyAir 模型重名，例如 `moyuu-gpt-image-2=gpt-image-2`。 |
-| `OPENAI_COMPAT_SEND_REFERENCE_IMAGES_AS_FILES` | `true` | 第三方 OpenAI-compatible 模型有参考图时，使用 `/images/edits` multipart 文件发送参考图；关闭后沿用 URL 文本发送。 |
+| `OPENAI_COMPAT_SEND_REFERENCE_IMAGES_AS_FILES` | `false` | 第三方 OpenAI-compatible 模型有参考图时默认沿用 URL 文本走 `/images/generations`；开启后才使用 `/images/edits` multipart 文件发送参考图。 |
 | `OPENAI_COMPAT_CONCURRENCY` | `0` | 旧版单第三方 provider 的并发上限，`0` 表示不限流。 |
 | `OPENAI_COMPAT_PROVIDERS` | 空 | 多第三方 provider id 列表，例如 `moyuu,openrouter`。设置后优先使用 provider 专属变量。 |
 | `OPENAI_COMPAT_<ID>_API_KEY` | 空 | 指定 provider 的 API Key，`<ID>` 为 provider id 转大写并把非字母数字替换成 `_`。 |
@@ -559,7 +559,7 @@ Content-Type: multipart/form-data
 
 ### `GET /api/jobs`
 
-获取任务列表，需要认证。按更新时间倒序返回。
+获取任务列表，需要认证。按更新时间倒序返回，默认返回最近 200 条，可用 `?limit=100` 调整，最大 500 条；活动中的任务会额外包含在返回结果中。
 
 ### `GET /api/jobs/{job_id}`
 

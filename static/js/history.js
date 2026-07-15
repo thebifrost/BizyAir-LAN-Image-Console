@@ -1,16 +1,50 @@
       /* ---- History (bottom gallery) ---- */
       function renderHistory(jobs) {
+        historyLoadGeneration += 1;
+        historyJobsLoading = false;
         historyImageUrls.clear();
         historyRecords = [];
+        historyLoadedJobIds = new Set(jobs.map((job) => job.id).filter(Boolean));
         jobs.forEach((job) => {
           getJobImageRecords(job).forEach((record) => addHistoryRecord(record, false));
         });
         historyPage = 1;
+        historyJobOffset = jobs.length;
+        historyJobsComplete = jobs.length < HISTORY_JOB_BATCH_SIZE;
         renderHistoryFilters();
         renderHistoryPage();
       }
 
+      async function loadRemainingHistoryJobs() {
+        if (historyJobsLoading || historyJobsComplete) return;
+        const generation = historyLoadGeneration;
+        historyJobsLoading = true;
+        try {
+          while (!historyJobsComplete && generation === historyLoadGeneration) {
+            const response = await apiRequest(`/api/jobs?limit=${HISTORY_JOB_BATCH_SIZE}&offset=${historyJobOffset}`);
+            const jobs = Array.isArray(response.data) ? response.data : [];
+            if (generation !== historyLoadGeneration) return;
+            jobs.forEach((job) => { if (job.id) historyLoadedJobIds.add(job.id); });
+            jobs.forEach((job) => getJobImageRecords(job).forEach((record) => addHistoryRecord(record, false)));
+            historyJobOffset += jobs.length;
+            historyJobsComplete = jobs.length < HISTORY_JOB_BATCH_SIZE;
+            renderHistoryFilters();
+            renderHistoryPage();
+            if (!jobs.length) break;
+          }
+        } catch (error) {
+          log(`历史记录加载未完成：${error.message}`, "warn");
+        } finally {
+          if (generation === historyLoadGeneration) historyJobsLoading = false;
+        }
+      }
+
       function appendToHistory(job) {
+        const isNewJob = Boolean(job.id) && !historyLoadedJobIds.has(job.id);
+        if (isNewJob) {
+          historyLoadedJobIds.add(job.id);
+          if (historyJobsLoading) historyJobOffset += 1;
+        }
         const records = getJobImageRecords(job);
         if (!records.length) return;
         const shouldStay = historyPage === 1 && !historySearchText && !historyModelFilter;
@@ -166,7 +200,7 @@
         $("historyCount").textContent = `${records.length}/${historyRecords.length} 张`;
         $("historyPageInfo").textContent = `${historyPage} / ${totalPages}`;
         $("historyPrevPage").disabled = historyPage <= 1;
-        $("historyNextPage").disabled = historyPage >= totalPages;
+        $("historyNextPage").disabled = historyJobsComplete && historyPage >= totalPages;
       }
 
       function renderHistoryFilters() {

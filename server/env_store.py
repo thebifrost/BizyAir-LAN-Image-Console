@@ -81,6 +81,16 @@ LEGACY_PROVIDER_KEYS = (
     "OPENAI_COMPAT_SEND_REFERENCE_IMAGES_AS_FILES",
     "OPENAI_COMPAT_CONCURRENCY",
 )
+RESTART_REQUIRED_KEYS = {
+    "APP_HOST",
+    "APP_PORT",
+    "WORKER_THREADS",
+    "DATA_DIR",
+    "LOG_DIR",
+    "LOG_LEVEL",
+    "LOG_MAX_MB",
+    "LOG_BACKUP_COUNT",
+}
 
 
 def public_env_config(config: AppConfig) -> dict:
@@ -142,7 +152,7 @@ def save_env_config(payload: dict) -> dict:
         "updated": sorted(updates),
         "removed": sorted(removals),
         "backup_path": str(backup_path) if backup_path else "",
-        "restart_required": True,
+        "restart_required": bool((set(updates) | removals) & RESTART_REQUIRED_KEYS),
     }
 
 
@@ -199,7 +209,7 @@ def apply_provider_updates(providers, updates: dict[str, str], removals: set[str
         updates[f"{prefix}_BASE_URL"] = base_url
         updates[f"{prefix}_MODELS"] = models
         updates[f"{prefix}_TIMEOUT_SECONDS"] = normalize_int(item.get("timeout_seconds", 300), 1, f"{provider_id} timeout")
-        updates[f"{prefix}_SEND_REFERENCE_IMAGES_AS_FILES"] = "true" if item.get("send_reference_images_as_files") is not False else "false"
+        updates[f"{prefix}_SEND_REFERENCE_IMAGES_AS_FILES"] = "true" if item.get("send_reference_images_as_files") is True else "false"
         updates[f"{prefix}_CONCURRENCY"] = normalize_int(item.get("concurrency", 0), 0, f"{provider_id} concurrency")
         if api_key:
             updates[f"{prefix}_API_KEY"] = api_key

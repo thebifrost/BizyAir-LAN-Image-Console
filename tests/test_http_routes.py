@@ -9,8 +9,12 @@ class FakeDatabase:
     def __init__(self) -> None:
         self.deleted_images: list[str] = []
         self.retried_jobs: list[str] = []
+        self.list_limit: int | None = None
+        self.list_offset = 0
 
-    def list_jobs(self) -> list[dict]:
+    def list_jobs(self, limit: int | None = None, offset: int = 0) -> list[dict]:
+        self.list_limit = limit
+        self.list_offset = offset
         return [{"id": "job-list"}]
 
     def get_job(self, job_id: str) -> dict:
@@ -130,6 +134,16 @@ class HttpRouteTests(unittest.TestCase):
 
         self.assertEqual(handler.auth_actions, [])
         self.assertEqual(handler.called, [("static", "/static/js/app.js")])
+
+    def test_get_jobs_applies_bounded_limit(self) -> None:
+        handler = FakeHandler()
+
+        dispatch_get(handler, urlparse("/api/jobs?limit=9999"))
+
+        self.assertEqual(handler.auth_actions, ["jobs:list"])
+        self.assertEqual(handler.server.db.list_limit, 500)
+        self.assertEqual(handler.server.db.list_offset, 0)
+        self.assertEqual(handler.responses, [(200, {"status": True, "data": [{"id": "job-list"}]})])
 
     def test_post_retry_job_requeues_items_and_audits(self) -> None:
         handler = FakeHandler()

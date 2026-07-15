@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING, Callable
+from urllib.parse import parse_qs
 
 from .env_store import public_env_config
 from .schemas import get_model_schemas
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
 
 
 HandlerAction = Callable[[], None]
+DEFAULT_JOB_LIST_LIMIT = 200
+MAX_JOB_LIST_LIMIT = 500
 
 
 def dispatch_get(handler: LanGatewayHandler, parsed: ParseResult) -> None:
@@ -28,7 +31,7 @@ def dispatch_get(handler: LanGatewayHandler, parsed: ParseResult) -> None:
         "/api/admin/env": ("admin:env:get", lambda: handler._send_json({"status": True, "data": public_env_config(handler.server.config)})),
         "/api/logs": ("logs:get", lambda: handler._handle_logs(parsed)),
         "/api/image-cache": (None, lambda: handler._handle_image_cache(parsed)),
-        "/api/jobs": ("jobs:list", lambda: handler._send_json({"status": True, "data": handler.server.db.list_jobs()})),
+        "/api/jobs": ("jobs:list", lambda: _handle_list_jobs(handler, parsed)),
     }
     route = exact_routes.get(path)
     if route:
@@ -94,6 +97,22 @@ def _handle_get_job(handler: LanGatewayHandler, path: str) -> None:
         _not_found(handler)
         return
     handler._send_json({"status": True, "data": handler.server.db.get_job(job_id)})
+
+
+def _handle_list_jobs(handler: LanGatewayHandler, parsed: ParseResult) -> None:
+    query = parse_qs(parsed.query)
+    raw_limit = (query.get("limit") or [str(DEFAULT_JOB_LIST_LIMIT)])[0]
+    raw_offset = (query.get("offset") or ["0"])[0]
+    try:
+        limit = int(raw_limit)
+    except (TypeError, ValueError):
+        limit = DEFAULT_JOB_LIST_LIMIT
+    try:
+        offset = int(raw_offset)
+    except (TypeError, ValueError):
+        offset = 0
+    limit = min(max(limit, 1), MAX_JOB_LIST_LIMIT)
+    handler._send_json({"status": True, "data": handler.server.db.list_jobs(limit=limit, offset=max(0, offset))})
 
 
 def _handle_cancel_job(handler: LanGatewayHandler, path: str) -> None:

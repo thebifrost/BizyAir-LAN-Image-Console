@@ -33,13 +33,23 @@ class JobRunner:
         self.enqueued: set[str] = set()
         self.enqueued_lock = threading.Lock()
         self.key_pool = BizyAirKeyPool(config.bizyair_keys)
-        self.provider_semaphores = {
+        self.provider_semaphores = self._provider_semaphores(config)
+        self.stop_event = threading.Event()
+        self.threads: list[threading.Thread] = []
+
+    @staticmethod
+    def _provider_semaphores(config: AppConfig) -> dict[str, threading.BoundedSemaphore]:
+        return {
             provider_id: threading.BoundedSemaphore(provider.concurrency)
             for provider_id, provider in getattr(config, "openai_providers", {}).items()
             if provider.concurrency > 0
         }
-        self.stop_event = threading.Event()
-        self.threads: list[threading.Thread] = []
+
+    def reload_config(self, config: AppConfig, upstream_client: UpstreamClient) -> None:
+        self.config = config
+        self.upstream_client = upstream_client
+        self.key_pool = BizyAirKeyPool(config.bizyair_keys)
+        self.provider_semaphores = self._provider_semaphores(config)
 
     def start(self) -> None:
         for item_id in self.db.queued_item_ids():
@@ -170,10 +180,13 @@ class JobRunner:
             response, data = self.upstream_client.create_openai_image(provider, upstream_model, item["payload"], reference_images=reference_images)
         if not response.ok:
             raise RuntimeError(f"OpenAI-compatible 生成失败: HTTP {response.status_code} - {redact(data, self.config)}")
-        result = normalize_openai_image_result(data, str(item["payload"].get("output_format") or "png"))
+        failed_reason = self._openai_compatible_failure_reason(data)
+        if failed_reason:
+            raise RuntimeError(f"OpenAI-compatible 任务失败: {failed_reason}")
+        result = normalize_openai_image_result(data, str(item["payload"].get("output_format") or "png"), provider.base_url)
         if not result.get("outputs", {}).get("images"):
             raise RuntimeError(f"OpenAI-compatible 响应缺少图片: {redact(data, self.config)}")
-        self._archive_result_images(item, result)
+        self._archive_result_images(item, result, headers=self.upstream_client.openai_headers(provider, content_type=None))
         self.db.finish_item(item_id, "succeeded", result=result)
         self.logger.info("子任务完成 item=%s job=%s model=%s provider=%s", item_id, item.get("job_id"), item.get("model"), provider.id)
 
@@ -183,6 +196,21 @@ class JobRunner:
             self.db.finish_item(item_id, "cancelled")
             return True
         return item["status"] in TERMINAL_STATUSES
+
+    @staticmethod
+    def _openai_compatible_failure_reason(data: dict) -> str:
+        if not isinstance(data, dict):
+            return ""
+        status = str(data.get("status") or data.get("state") or "").strip().lower()
+        if status not in {"failed", "cancelled", "canceled", "error"}:
+            return ""
+        error = data.get("error") if isinstance(data.get("error"), dict) else {}
+        code = data.get("error_code") or data.get("code") or error.get("code") or status
+        message = data.get("error_message") or data.get("message") or error.get("message") or ""
+        attempts = ""
+        if data.get("attempts") is not None or data.get("max_attempts") is not None:
+            attempts = f" attempts={data.get('attempts', '?')}/{data.get('max_attempts', '?')}"
+        return f"{code}{': ' + str(message) if message else ''}{attempts}"
 
     @contextlib.contextmanager
     def _provider_slot(self, provider_id: str):
@@ -253,7 +281,7 @@ class JobRunner:
         image_id = path.removeprefix("/api/images/").split("/", 1)[0]
         return image_id if re.fullmatch(r"[a-f0-9]{32}", image_id) else ""
 
-    def _archive_result_images(self, item: dict, result: dict) -> None:
+    def _archive_result_images(self, item: dict, result: dict, headers: dict[str, str] | None = None) -> None:
         if not self.image_cache:
             return
         outputs = result.get("outputs") if isinstance(result.get("outputs"), dict) else result.get("data", {}).get("outputs", {}) if isinstance(result.get("data"), dict) else {}
@@ -268,7 +296,7 @@ class JobRunner:
                     archived = self.image_cache.archive_result_data_url(url, image_id)
                     original_url = local_url
                 else:
-                    archived = self.image_cache.archive_result_image(url, image_id)
+                    archived = self.image_cache.archive_result_image(url, image_id, headers=headers)
                     original_url = url
                 self.db.upsert_job_image({
                     "id": image_id,

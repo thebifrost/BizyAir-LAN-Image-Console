@@ -115,14 +115,19 @@ class Database:
                 )
         return self.get_job(job_id)
 
-    def list_jobs(self, limit: int | None = None) -> list[dict]:
+    def list_jobs(self, limit: int | None = None, offset: int = 0) -> list[dict]:
         with self.lock, self.connect() as conn:
             if limit is None:
-                rows = conn.execute("SELECT * FROM jobs ORDER BY updated_at DESC").fetchall()
+                rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC, id DESC").fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM jobs ORDER BY updated_at DESC LIMIT ?",
-                    (limit,),
+                    """
+                    SELECT *
+                    FROM jobs
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    (limit, max(0, offset)),
                 ).fetchall()
             jobs = [self._job_summary(conn, row) for row in rows]
         return jobs
@@ -330,11 +335,11 @@ class Database:
                 (job["id"],),
             ).fetchall()
         ]
-        self._hydrate_job(conn, job, items)
+        self._hydrate_job(conn, job, items, include_inline_images=False)
         job.pop("items", None)
         return job
 
-    def _hydrate_job(self, conn: sqlite3.Connection, job: dict, items: list[dict]) -> None:
+    def _hydrate_job(self, conn: sqlite3.Connection, job: dict, items: list[dict], include_inline_images: bool = True) -> None:
         job["params"] = json.loads(job.pop("params_json") or "{}")
         for item in items:
             if "payload_json" in item:
@@ -343,8 +348,8 @@ class Database:
                 item["result"] = json.loads(item.pop("result_json") or "null") if item.get("result_json") else None
         job["items"] = items
         has_deleted_images = self._has_deleted_local_image_records(conn, items)
-        job["latest_images"] = [] if has_deleted_images else self._extract_latest_images(items)
-        job["image_records"] = self._extract_image_records(conn, job, items, has_deleted_images)
+        job["latest_images"] = [] if has_deleted_images else self._extract_latest_images(items, include_inline_images)
+        job["image_records"] = self._extract_image_records(conn, job, items, include_inline_images)
         self._add_status_counts(job, items)
         self._add_queue_metadata(conn, job, items)
 
@@ -386,19 +391,34 @@ class Database:
         job["estimated_wait_seconds"] = queue_ahead * 75 if active_items and job.get("status") == "queued" else None
         job["elapsed_seconds"] = max(0, int(time.time() - elapsed_start)) if elapsed_start else None
 
-    def _extract_image_records(self, conn: sqlite3.Connection, job: dict, items: list[dict], has_deleted_images: bool = False) -> list[dict]:
-        local_records = self._extract_local_image_records(job, items)
-        if local_records:
-            return local_records
-        if has_deleted_images:
-            return []
+    def _extract_image_records(
+        self,
+        conn: sqlite3.Connection,
+        job: dict,
+        items: list[dict],
+        include_inline_images: bool = True,
+    ) -> list[dict]:
+        local_records = self._extract_local_image_records(conn, job, items)
+        local_by_key = {(record["item_id"], record["image_index"]): record for record in local_records}
+        archived_keys = self._job_image_keys(conn, items)
+        used_local_keys: set[tuple[str, int]] = set()
         records: list[dict] = []
         for item in sorted(items, key=lambda row: row.get("finished_at") or row.get("created_at") or "", reverse=True):
             result = item.get("result")
             if not isinstance(result, dict):
                 continue
             outputs = result.get("outputs") if isinstance(result.get("outputs"), dict) else result.get("data", {}).get("outputs", {}) if isinstance(result.get("data"), dict) else {}
-            for url in outputs.get("images", []) if isinstance(outputs, dict) else []:
+            for image_index, url in enumerate(outputs.get("images", []) if isinstance(outputs, dict) else []):
+                image_key = (item.get("id") or "", image_index)
+                local_record = local_by_key.get(image_key)
+                if local_record:
+                    records.append(local_record)
+                    used_local_keys.add(image_key)
+                    continue
+                if image_key in archived_keys:
+                    continue
+                if not include_inline_images and isinstance(url, str) and url.startswith("data:image/"):
+                    continue
                 if self._is_displayable_image_url(url):
                     records.append(
                         {
@@ -418,9 +438,20 @@ class Database:
                             "status": item.get("status"),
                         }
                     )
-                if len(records) >= 12:
-                    return records
+        records.extend(record for key, record in local_by_key.items() if key not in used_local_keys)
         return records
+
+    @staticmethod
+    def _job_image_keys(conn: sqlite3.Connection, items: list[dict]) -> set[tuple[str, int]]:
+        item_ids = [item.get("id") for item in items if item.get("id")]
+        if not item_ids:
+            return set()
+        placeholders = ",".join("?" for _ in item_ids)
+        rows = conn.execute(
+            f"SELECT item_id, image_index FROM job_images WHERE item_id IN ({placeholders})",
+            item_ids,
+        ).fetchall()
+        return {(row["item_id"], int(row["image_index"])) for row in rows}
 
     def _has_deleted_local_image_records(self, conn: sqlite3.Connection, items: list[dict]) -> bool:
         item_ids = [item.get("id") for item in items if item.get("id")]
@@ -433,17 +464,16 @@ class Database:
         ).fetchone()
         return row is not None
 
-    def _extract_local_image_records(self, job: dict, items: list[dict]) -> list[dict]:
+    def _extract_local_image_records(self, conn: sqlite3.Connection, job: dict, items: list[dict]) -> list[dict]:
         item_map = {item.get("id"): item for item in items}
         item_ids = [item_id for item_id in item_map if item_id]
         if not item_ids:
             return []
         placeholders = ",".join("?" for _ in item_ids)
-        with self.connect() as conn:
-            rows = conn.execute(
-                f"SELECT * FROM job_images WHERE item_id IN ({placeholders}) AND status = 'ready' ORDER BY created_at DESC, image_index ASC",
-                item_ids,
-            ).fetchall()
+        rows = conn.execute(
+            f"SELECT * FROM job_images WHERE item_id IN ({placeholders}) AND status = 'ready' ORDER BY created_at DESC, image_index ASC",
+            item_ids,
+        ).fetchall()
         records = []
         for row in rows:
             image = self._row_to_dict(row)
@@ -462,6 +492,7 @@ class Database:
                     "params": item.get("payload") or job.get("params") or {},
                     "job_id": job.get("id"),
                     "item_id": item.get("id"),
+                    "image_index": int(image.get("image_index") or 0),
                     "created_at": item.get("created_at") or job.get("created_at"),
                     "finished_at": item.get("finished_at") or image.get("created_at"),
                     "status": item.get("status") or "succeeded",
@@ -500,7 +531,7 @@ class Database:
         return {key: row[key] for key in row.keys()}
 
     @staticmethod
-    def _extract_latest_images(items: list[dict]) -> list[str]:
+    def _extract_latest_images(items: list[dict], include_inline_images: bool = True) -> list[str]:
         images: list[str] = []
         for item in items:
             result = item.get("result")
@@ -512,6 +543,8 @@ class Database:
             if isinstance(result, dict):
                 outputs = result.get("outputs") if isinstance(result.get("outputs"), dict) else result.get("data", {}).get("outputs", {}) if isinstance(result.get("data"), dict) else {}
                 for url in outputs.get("images", []) if isinstance(outputs, dict) else []:
+                    if not include_inline_images and isinstance(url, str) and url.startswith("data:image/"):
+                        continue
                     if Database._is_displayable_image_url(url):
                         images.append(url)
             if len(images) >= 8:

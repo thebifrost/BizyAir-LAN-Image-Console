@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 
 from .bizyUpImage import BizyUpImage
-from .config import APP_VERSION, PROJECT_ROOT, now_iso, update_env_value
+from .config import APP_VERSION, PROJECT_ROOT, load_config, now_iso, update_env_value
 from .env_store import save_env_config
 from .http_routes import dispatch_delete, dispatch_get, dispatch_post
 from .imgbb_uploader import ImgBBUploader
@@ -160,6 +160,16 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
     def _handle_admin_env(self) -> None:
         body = self._read_json_body()
         result = save_env_config(body)
+        try:
+            new_config = load_config()
+        except SystemExit as exc:
+            raise ValueError(f"配置已保存，但热重载失败: {exc}") from exc
+        new_upstream_client = UpstreamClient(new_config)
+        self.server.config = new_config
+        self.server.upstream_client = new_upstream_client
+        self.server.image_cache.config = new_config
+        self.server.runner.reload_config(new_config, new_upstream_client)
+        result["hot_reloaded"] = True
         self._audit("admin:env", "ok", {"updated": result.get("updated", []), "removed": result.get("removed", [])})
         self.server.logger.info("环境配置已保存 updated=%s removed=%s backup=%s", result.get("updated", []), result.get("removed", []), result.get("backup_path", ""))
         self._send_json({"status": True, "data": result})
@@ -1030,7 +1040,7 @@ class LanGatewayHandler(BaseHTTPRequestHandler):
             "openai_compatible_send_reference_images_as_files": (
                 self.server.config.openai_compatible.send_reference_images_as_files
                 if self.server.config.openai_compatible
-                else True
+                else False
             ),
         }
 

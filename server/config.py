@@ -72,7 +72,7 @@ class OpenAICompatibleConfig:
     model_map: dict[str, str]
     label: str = ""
     timeout_seconds: int = 300
-    send_reference_images_as_files: bool = True
+    send_reference_images_as_files: bool = False
     concurrency: int = 0
 
 
@@ -324,7 +324,7 @@ def load_openai_providers() -> tuple[dict[str, OpenAICompatibleConfig], dict]:
                 raw_models=tuple(split_env_list(f"{prefix}_MODELS")),
                 label=os.getenv(f"{prefix}_LABEL", provider_id).strip(),
                 timeout_seconds=env_int(f"{prefix}_TIMEOUT_SECONDS", 300, 1),
-                send_reference_images_as_files=env_bool(f"{prefix}_SEND_REFERENCE_IMAGES_AS_FILES", True),
+                send_reference_images_as_files=env_bool(f"{prefix}_SEND_REFERENCE_IMAGES_AS_FILES", False),
                 concurrency=env_int(f"{prefix}_CONCURRENCY", 0, 0),
             )
             if provider.id in providers:
@@ -355,7 +355,7 @@ def load_openai_providers() -> tuple[dict[str, OpenAICompatibleConfig], dict]:
         raw_models=raw_models,
         label=os.getenv("OPENAI_COMPAT_LABEL", "OpenAI Compatible").strip(),
         timeout_seconds=env_int("OPENAI_COMPAT_TIMEOUT_SECONDS", 300, 1),
-        send_reference_images_as_files=env_bool("OPENAI_COMPAT_SEND_REFERENCE_IMAGES_AS_FILES", True),
+        send_reference_images_as_files=env_bool("OPENAI_COMPAT_SEND_REFERENCE_IMAGES_AS_FILES", False),
         concurrency=env_int("OPENAI_COMPAT_CONCURRENCY", 0, 0),
     )
     return {provider.id: provider}, _openai_provider_schemas(provider)

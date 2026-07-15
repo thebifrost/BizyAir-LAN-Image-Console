@@ -54,6 +54,11 @@ def main() -> None:
         server.serve_forever()
     except KeyboardInterrupt:
         logger.info("收到停止信号，正在退出")
+    except Exception:
+        logger.exception("Server main loop exited unexpectedly")
+        raise
+    else:
+        logger.warning("Server main loop exited")
     finally:
         runner.stop()
         server.server_close()

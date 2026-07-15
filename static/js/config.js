@@ -1,6 +1,7 @@
       /* ---- Config persistence ---- */
       function saveConfig() {
         const config = {
+          configVersion: CONFIG_VERSION,
           prompt: $("prompt").value,
           model: modelEl.value,
           size: $("size").value,
@@ -72,7 +73,9 @@
         nextMainImageIndex = Number.isInteger(config.nextMainImageIndex) ? config.nextMainImageIndex : 0;
         if ("autoRetryEnabled" in config) autoRetryEnabled = config.autoRetryEnabled !== false;
         autoRetryMaxAttempts = Math.max(0, Math.min(10, Number(config.autoRetryMaxAttempts ?? autoRetryMaxAttempts) || 0));
-        if ("thirdPartyReferenceImagesAsFiles" in config) thirdPartyReferenceImagesAsFiles = config.thirdPartyReferenceImagesAsFiles !== false;
+        if (Number(config.configVersion || 0) >= 2 && "thirdPartyReferenceImagesAsFiles" in config) {
+          thirdPartyReferenceImagesAsFiles = config.thirdPartyReferenceImagesAsFiles === true;
+        }
         $("autoRetryEnabled").value = String(autoRetryEnabled);
         $("autoRetryMaxAttempts").value = String(autoRetryMaxAttempts);
         $("thirdPartyReferenceImagesAsFiles").value = String(thirdPartyReferenceImagesAsFiles);

@@ -4,12 +4,13 @@
           const [configResponse, modelsResponse, jobsResponse, runtimeResponse] = await Promise.all([
             apiRequest("/api/config"),
             apiRequest("/api/models"),
-            apiRequest("/api/jobs"),
+            apiRequest(`/api/jobs?limit=${HISTORY_JOB_BATCH_SIZE}&offset=0`),
             apiRequest("/api/admin/runtime"),
           ]);
           const config = configResponse.data || {};
           const savedConfig = loadSavedConfig();
-          if (!savedConfig || !("thirdPartyReferenceImagesAsFiles" in savedConfig)) {
+          const hasSavedReferenceMode = savedConfig && Number(savedConfig.configVersion || 0) >= 2 && "thirdPartyReferenceImagesAsFiles" in savedConfig;
+          if (!hasSavedReferenceMode) {
             thirdPartyReferenceImagesAsFiles = config.openai_compatible_send_reference_images_as_files !== false;
             $("thirdPartyReferenceImagesAsFiles").value = String(thirdPartyReferenceImagesAsFiles);
           }
@@ -25,6 +26,7 @@
           renderHistory(jobs);
           restoreActiveJobs(jobs);
           lastSeenJobIds = new Set(jobs.map((job) => job.id).filter(Boolean));
+          void loadRemainingHistoryJobs();
           renderAuthState(config);
           renderRuntime(runtimeResponse.data || {});
           startRuntimeRefresh();
@@ -78,7 +80,7 @@
         try {
           const [runtimeResponse, jobsResponse] = await Promise.all([
             apiRequest("/api/admin/runtime"),
-            apiRequest("/api/jobs"),
+            apiRequest(`/api/jobs?limit=${HISTORY_JOB_BATCH_SIZE}&offset=0`),
           ]);
           renderRuntime(runtimeResponse.data || {});
           refreshExternalJobs(jobsResponse.data || []);
@@ -96,7 +98,10 @@
       }
 
       function refreshExternalJobs(jobs) {
-        const newJobs = jobs.filter((job) => job.id && !lastSeenJobIds.has(job.id));
+        const unseenJobs = jobs.filter((job) => job.id && !lastSeenJobIds.has(job.id));
+        unseenJobs.forEach((job) => lastSeenJobIds.add(job.id));
+        unseenJobs.forEach((job) => appendToHistory(job));
+        const newJobs = unseenJobs.filter((job) => !TERMINAL_STATUSES.includes(job.status));
         if (newJobs.length) {
           newJobs.forEach((job) => {
             const task = normalizeTaskFromJob(job);
@@ -107,7 +112,6 @@
           renderTaskLargePreview();
           log(`检测到 ${newJobs.length} 个外部 OpenAI 任务入队。`, "info");
         }
-        lastSeenJobIds = new Set(jobs.map((job) => job.id).filter(Boolean));
       }
 
       function hasActiveTasks() {

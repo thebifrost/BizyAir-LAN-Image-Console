@@ -17,6 +17,10 @@ from .config import AppConfig
 from .image_data import parse_image_data_url
 from .schemas import ALLOWED_CACHE_IMAGE_TYPES
 
+GENERIC_IMAGE_CONTENT_TYPES = {"application/octet-stream", "binary/octet-stream", ""}
+SNIFF_IMAGE_BYTES = 64
+
+
 class ImageCache:
     def __init__(self, config: AppConfig, logger: logging.Logger):
         self.config = config
@@ -43,10 +47,10 @@ class ImageCache:
             self._cleanup_periodically()
             return path, content_type
 
-    def archive_result_image(self, url: str, image_id: str) -> dict:
+    def archive_result_image(self, url: str, image_id: str, headers: dict[str, str] | None = None) -> dict:
         self._validate_url(url)
         with self._lock_for(f"result-{image_id}"):
-            path, content_type, extension, size, digest = self._download_to_directory(url, image_id, self.result_dir)
+            path, content_type, extension, size, digest = self._download_to_directory(url, image_id, self.result_dir, headers=headers)
             return {"local_path": str(path), "content_type": content_type, "extension": extension, "size": size, "sha256": digest, "original_url": url}
 
     def archive_result_data_url(self, data_url: str, image_id: str) -> dict:
@@ -116,12 +120,12 @@ class ImageCache:
         self._write_meta(key, url, content_type, extension, size)
         return final_path, content_type
 
-    def _download_to_directory(self, url: str, stem: str, directory: Path) -> tuple[Path, str, str, int, str]:
+    def _download_to_directory(self, url: str, stem: str, directory: Path, headers: dict[str, str] | None = None) -> tuple[Path, str, str, int, str]:
         current_url = url
         response = None
         for _ in range(4):
             self._validate_url(current_url)
-            response = requests.get(current_url, stream=True, timeout=(5, 30), allow_redirects=False)
+            response = requests.get(current_url, headers=self._headers_for_url(url, current_url, headers), stream=True, timeout=(5, 30), allow_redirects=False)
             if response.is_redirect or response.is_permanent_redirect:
                 location = response.headers.get("Location")
                 response.close()
@@ -136,16 +140,16 @@ class ImageCache:
             if response.status_code != 200:
                 raise ValueError(f"图片下载失败：HTTP {response.status_code}")
             content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
-            if content_type not in ALLOWED_CACHE_IMAGE_TYPES:
+            if content_type not in ALLOWED_CACHE_IMAGE_TYPES and content_type not in GENERIC_IMAGE_CONTENT_TYPES:
                 raise ValueError("只允许缓存 jpg、png、webp、gif、avif 图片")
             length = int(response.headers.get("Content-Length") or "0")
             if length > self.config.image_cache_max_bytes:
                 raise ValueError(f"图片不能超过 {self.config.image_cache_max_bytes // 1024 // 1024} MB")
-            extension = ALLOWED_CACHE_IMAGE_TYPES[content_type]
-            final_path = self._safe_image_path(directory, stem, extension)
-            temp_path = final_path.with_suffix(final_path.suffix + ".tmp")
+            extension = ALLOWED_CACHE_IMAGE_TYPES.get(content_type)
+            temp_path = self._safe_image_path(directory, stem, ".tmp")
             written = 0
             digest = hashlib.sha256()
+            sniff_buffer = b""
             with temp_path.open("wb") as fh:
                 for chunk in response.iter_content(chunk_size=1024 * 128):
                     if not chunk:
@@ -153,8 +157,18 @@ class ImageCache:
                     written += len(chunk)
                     if written > self.config.image_cache_max_bytes:
                         raise ValueError(f"图片不能超过 {self.config.image_cache_max_bytes // 1024 // 1024} MB")
+                    if extension is None:
+                        sniff_buffer = (sniff_buffer + chunk)[:SNIFF_IMAGE_BYTES]
+                        content_type, extension = self._sniff_image_type(sniff_buffer)
+                        if extension is None and len(sniff_buffer) >= SNIFF_IMAGE_BYTES:
+                            raise ValueError("只允许缓存 jpg、png、webp、gif、avif 图片")
                     digest.update(chunk)
                     fh.write(chunk)
+            if extension is None:
+                content_type, extension = self._sniff_image_type(sniff_buffer)
+            if extension is None:
+                raise ValueError("只允许缓存 jpg、png、webp、gif、avif 图片")
+            final_path = self._safe_image_path(directory, stem, extension)
             temp_path.replace(final_path)
             return final_path, content_type, extension, written, digest.hexdigest()
         finally:
@@ -177,6 +191,32 @@ class ImageCache:
         if base != path.parent:
             raise ValueError("图片路径无效")
         return path
+
+    @staticmethod
+    def _headers_for_url(original_url: str, current_url: str, headers: dict[str, str] | None) -> dict[str, str] | None:
+        if not headers:
+            return None
+        original = urlparse(original_url)
+        current = urlparse(current_url)
+        if original.scheme == current.scheme and original.netloc == current.netloc:
+            return headers
+        return None
+
+    @staticmethod
+    def _sniff_image_type(data: bytes) -> tuple[str, str | None]:
+        if data.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg", ALLOWED_CACHE_IMAGE_TYPES["image/jpeg"]
+        if data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png", ALLOWED_CACHE_IMAGE_TYPES["image/png"]
+        if data.startswith((b"GIF87a", b"GIF89a")):
+            return "image/gif", ALLOWED_CACHE_IMAGE_TYPES["image/gif"]
+        if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            return "image/webp", ALLOWED_CACHE_IMAGE_TYPES["image/webp"]
+        if len(data) >= 16 and data[4:8] == b"ftyp":
+            brands = [data[index:index + 4] for index in range(8, min(len(data) - 3, SNIFF_IMAGE_BYTES), 4)]
+            if any(brand in {b"avif", b"avis"} for brand in brands):
+                return "image/avif", ALLOWED_CACHE_IMAGE_TYPES["image/avif"]
+        return "", None
 
     def _meta_path(self, key: str) -> Path:
         path = (self.cache_dir / f"{key}.json").resolve()

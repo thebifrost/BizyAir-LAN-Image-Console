@@ -97,14 +97,21 @@
           historyPage = Math.max(historyPage - 1, 1);
           renderHistoryPage();
         });
-        $("historyNextPage").addEventListener("click", () => {
-          historyPage = Math.min(historyPage + 1, getHistoryTotalPages());
+        $("historyNextPage").addEventListener("click", async () => {
+          const nextPage = historyPage + 1;
+          if (nextPage > getHistoryTotalPages() && !historyJobsComplete) {
+            await loadRemainingHistoryJobs();
+          }
+          historyPage = Math.min(nextPage, getHistoryTotalPages());
           renderHistoryPage();
         });
         $("clearResults").addEventListener("click", () => {
           historyImageUrls.clear();
           historyRecords = [];
+          historyLoadedJobIds = new Set();
           historyPage = 1;
+          historyJobsComplete = true;
+          historyLoadGeneration += 1;
           renderHistoryPage();
           toast("已清空当前视图，刷新历史可重新载入记录。");
           log("已清空当前画廊视图。", "info");
