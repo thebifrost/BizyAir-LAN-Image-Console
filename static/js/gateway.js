@@ -61,8 +61,20 @@
       }
 
       function renderAuthState(config = null) {
-        $("activeKey").textContent = authToken ? "已认证" : "待认证";
-        $("gatewayStatus").textContent = authToken ? "已认证" : "待认证";
+        const pill = $("activeKey");
+        const status = $("gatewayStatus");
+        const badge = $("authStatusBadge");
+        const setState = (target, text, state) => {
+          if (!target) return;
+          target.textContent = text;
+          target.classList.remove("is-ok", "is-pending", "is-error");
+          if (state) target.classList.add(state);
+        };
+        const baseText = authToken ? "已认证" : "待认证";
+        const state = authToken ? "is-ok" : "is-pending";
+        setState(pill, baseText, state);
+        setState(status, baseText, state);
+        setState(badge, authToken ? "已连接" : "未连接", state);
         if (config) {
           const keys = Array.isArray(config.bizyair_keys) ? config.bizyair_keys : [];
           const providers = Array.isArray(config.openai_providers) ? config.openai_providers : [];
@@ -71,8 +83,8 @@
           if (providers.length) keyParts.push(`${providers.length} 个第三方`);
           keyParts.push(`工作线程 ${config.worker_threads || "--"}`);
           const keyText = ` · ${keyParts.join(" · ")}`;
-          $("activeKey").textContent = authToken ? `已认证${keyText}` : "待认证";
-          $("gatewayStatus").textContent = authToken ? `已认证${keyText}` : "待认证";
+          setState(pill, authToken ? `已认证${keyText}` : "待认证", state);
+          setState(status, authToken ? `已认证${keyText}` : "待认证", state);
         }
       }
 
@@ -93,8 +105,23 @@
       function renderRuntime(runtime) {
         $("openaiBaseUrl").textContent = runtime.openai_base_url || `${location.origin}/v1`;
         $("runtimeQueueLength").textContent = String(runtime.queue_length ?? "--");
+        const workerEl = $("runtimeWorkerThreads");
+        if (workerEl) workerEl.textContent = String(runtime.worker_threads ?? "--");
+        const logDirEl = $("runtimeLogDir");
+        if (logDirEl) logDirEl.textContent = runtime.log_dir || "--";
         if (runtime.port) $("runtimePort").value = runtime.port;
         $("runtimeHint").textContent = runtime.log_dir ? `日志目录：${runtime.log_dir}` : "修改端口后需要重启服务生效。";
+      }
+
+      async function copyBaseUrl() {
+        const text = $("openaiBaseUrl").textContent.trim();
+        if (!text || text === "--") return;
+        try {
+          await navigator.clipboard.writeText(text);
+          toast("已复制 Base URL。");
+        } catch {
+          toast("复制失败，请手动选中 Base URL 复制。");
+        }
       }
 
       function refreshExternalJobs(jobs) {
@@ -132,18 +159,37 @@
 
       async function saveRuntimePort() {
         const port = Number($("runtimePort").value);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+          toast("端口必须是 1-65535 的整数。");
+          return;
+        }
+        const btn = $("saveRuntimePort");
+        btn.disabled = true;
+        btn.classList.add("is-loading");
         try {
           const response = await apiRequest("/api/admin/config", { method: "POST", body: { port } });
-          const restartText = response.data?.restart_required ? "，重启后生效" : "";
+          const restartRequired = response.data?.restart_required;
+          const restartText = restartRequired ? "，重启后生效" : "";
           toast(`端口已保存${restartText}。`);
           log(`端口配置已保存为 ${port}${restartText}。`, "success");
+          if (restartRequired) {
+            const alert = $("runtimeRestartAlert");
+            if (alert) alert.hidden = false;
+          }
         } catch (error) {
           toast(error.message);
           log(`端口保存失败：${error.message}`, "error");
+        } finally {
+          btn.disabled = false;
+          btn.classList.remove("is-loading");
         }
       }
 
       async function restartServer() {
+        if (!window.confirm("确认重启服务？正在运行的任务会继续执行，页面将短暂断连。")) return;
+        const btn = $("restartServer");
+        btn.disabled = true;
+        btn.classList.add("is-loading");
         try {
           await apiRequest("/api/admin/restart", { method: "POST" });
           toast("服务正在重启，请稍后刷新页面。");
@@ -151,5 +197,7 @@
         } catch (error) {
           toast(error.message);
           log(`重启失败：${error.message}`, "error");
+        } finally {
+          setTimeout(() => { btn.disabled = false; btn.classList.remove("is-loading"); }, 1500);
         }
       }

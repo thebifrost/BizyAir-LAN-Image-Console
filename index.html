@@ -115,10 +115,10 @@
             </form>
 
             <div class="actions">
-              <button class="primary" type="button" id="submitJobs">提交生成</button>
-              <button class="secondary" type="button" id="batchSubmitJobs">批次生成</button>
+              <button class="primary" type="button" id="submitJobs" title="提交单次任务（快捷键 Ctrl+Enter）">提交生成</button>
+              <button class="secondary" type="button" id="batchSubmitJobs" title="按主图数量批量提交，多张主图会各生成一次">批次生成</button>
               <button class="secondary danger" type="button" id="stopJobs">取消当前</button>
-              <span class="hint" id="submitHint">配置好参数后点击提交。</span>
+              <span class="hint" id="submitHint"><span id="submitHintText">配置好参数后点击提交。</span> <kbd class="kbd-hint">Ctrl</kbd>+<kbd class="kbd-hint">Enter</kbd> 快捷提交</span>
             </div>
           </div>
 
@@ -206,14 +206,17 @@
       </div>
       <div class="modal-body runtime-body">
         <section class="runtime-pane" id="runtimePaneStatus">
-          <div class="runtime-line"><span>Base URL</span><code id="openaiBaseUrl">--</code></div>
+          <div class="runtime-line"><span>Base URL</span><span class="runtime-copy-row"><code id="openaiBaseUrl">--</code><button class="secondary compact" id="copyBaseUrl" type="button" title="复制 Base URL">复制</button></span></div>
           <div class="runtime-line"><span>队列</span><strong id="runtimeQueueLength">--</strong></div>
+          <div class="runtime-line"><span>工作线程</span><strong id="runtimeWorkerThreads">--</strong></div>
+          <div class="runtime-line"><span>日志目录</span><code id="runtimeLogDir">--</code></div>
           <div class="runtime-port-row">
             <label for="runtimePort">端口</label>
             <input id="runtimePort" type="number" min="1" max="65535" placeholder="8787" />
             <button class="secondary" id="saveRuntimePort" type="button">保存</button>
             <button class="secondary danger" id="restartServer" type="button">重启</button>
           </div>
+          <div class="runtime-restart-alert" id="runtimeRestartAlert" hidden>⚠ 有配置修改需要重启服务后生效。</div>
           <div class="runtime-actions">
             <button class="secondary" id="loadAppLog" type="button">刷新应用日志</button>
             <button class="secondary" id="loadAuditLog" type="button">刷新审计日志</button>
@@ -223,14 +226,20 @@
         <section class="runtime-pane" id="runtimePaneEnv" hidden>
           <div class="env-toolbar">
             <span class="hint" id="envConfigStatus">读取配置中...</span>
-            <button class="secondary" id="saveEnvConfig" type="button">保存配置</button>
+            <div class="env-toolbar-actions">
+              <button class="secondary" id="reloadEnvConfig" type="button">重新读取</button>
+              <button class="primary" id="saveEnvConfig" type="button">保存配置</button>
+            </div>
           </div>
           <div class="env-grid" id="envFields"></div>
         </section>
         <section class="runtime-pane" id="runtimePaneProviders" hidden>
           <div class="env-toolbar">
-            <span class="hint">多个 Provider 请使用不同模型别名；并发为 0 表示不限流。</span>
-            <button class="secondary" id="addOpenaiProvider" type="button">新增 Provider</button>
+            <span class="hint">多个 Provider 请使用不同模型别名；并发为 0 表示不限流。别名映射：<code>local-alias=upstream-model</code>。</span>
+            <div class="env-toolbar-actions">
+              <button class="secondary" id="addOpenaiProvider" type="button">新增 Provider</button>
+              <button class="primary" id="saveProvidersConfig" type="button">保存配置</button>
+            </div>
           </div>
           <div class="provider-config-list" id="providerConfigList"></div>
         </section>
@@ -241,11 +250,14 @@
     </dialog>
 
     <dialog id="authDialog">
-      <div class="modal-head"><h3>局域网访问口令</h3></div>
+      <div class="modal-head"><h3>局域网访问口令</h3><span class="pill auth-status-pill" id="authStatusBadge">未连接</span></div>
       <div class="modal-body">
         <div class="field">
           <label for="tokenInput">访问口令</label>
-          <input id="tokenInput" type="password" autocomplete="current-password" placeholder="输入 ADMIN_TOKEN" />
+          <div class="password-input">
+            <input id="tokenInput" type="password" autocomplete="current-password" placeholder="输入 ADMIN_TOKEN" />
+            <button type="button" class="reveal-btn" id="toggleTokenVisibility" aria-label="显示/隐藏口令" title="显示/隐藏">👁</button>
+          </div>
         </div>
         <div class="actions" style="padding:0;">
           <button class="secondary" id="refreshAccount" type="button">查询账户与余额</button>

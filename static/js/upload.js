@@ -418,20 +418,21 @@
         if (schema.outputFormats?.length) parts.push(`格式 ${$("outputFormat").value || "--"}`);
         if (schema.moderations?.length) parts.push(`审核 ${$("moderation").value || "--"}`);
         if (supportsSeed(modelEl.value, schema)) parts.push(`Seed ${$("seed").value || 0}`);
+        const hintText = $("submitHintText") || $("submitHint");
         if (maxUrls && submissionInputCount > Math.min(maxUrls, MAX_INPUT_IMAGES)) {
-          $("submitHint").textContent = `${parts.join(" · ")} · 本次提交图片最多 ${Math.min(maxUrls, MAX_INPUT_IMAGES)} 张`;
+          hintText.textContent = `${parts.join(" · ")} · 本次提交图片最多 ${Math.min(maxUrls, MAX_INPUT_IMAGES)} 张`;
           return;
         }
         if (!selectedMainImageUrls.length) {
           parts.push("文生图模式");
           if (selectedReferenceUrls.length) parts.push("参考图将在无主图时忽略");
-          $("submitHint").textContent = parts.join(" · ");
+          hintText.textContent = parts.join(" · ");
           return;
         }
         parts.push(`主图 ${nextMainImageIndex + 1}/${selectedMainImageUrls.length}`);
         parts.push(`参考 ${selectedReferenceUrls.length}/${getMaxReferenceUrls(maxUrls)}`);
         parts.push(`本次提交 ${submissionInputCount}/${Math.min(maxUrls || MAX_INPUT_IMAGES, MAX_INPUT_IMAGES)}`);
-        $("submitHint").textContent = parts.join(" · ");
+        hintText.textContent = parts.join(" · ");
       }
 
       function setSeedValue(value) {

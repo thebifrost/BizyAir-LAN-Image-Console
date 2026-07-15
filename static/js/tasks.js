@@ -4,7 +4,7 @@
         if (!promptText) { toast("请输入提示词。"); return; }
 
         setSubmitButtonsDisabled(true);
-        $("submitHint").textContent = "提交中...";
+        ($("submitHintText") || $("submitHint")).textContent = "提交中...";
 
         try {
           const taskModel = modelEl.value;
@@ -64,7 +64,7 @@
           for (let index = 0; index < mainUrls.length; index += 1) {
             const mainImageUrl = mainUrls[index];
             batchButton.textContent = `提交中 ${index + 1}/${mainUrls.length}`;
-            $("submitHint").textContent = `批次提交中 ${index + 1}/${mainUrls.length}...`;
+            ($("submitHintText") || $("submitHint")).textContent = `批次提交中 ${index + 1}/${mainUrls.length}...`;
             try {
               const params = buildParamsFromSnapshot(paramsSnapshot, mainImageUrl);
               const task = await submitTaskWithParams({ prompt: promptText, model: taskModel, params, mainImageUrl, referenceUrls });

@@ -33,6 +33,19 @@
         $("runtimeTabEnv").addEventListener("click", () => switchRuntimeTab("env"));
         $("runtimeTabProviders").addEventListener("click", () => switchRuntimeTab("providers"));
         $("saveEnvConfig").addEventListener("click", saveEnvConfig);
+        const saveProvidersBtn = $("saveProvidersConfig");
+        if (saveProvidersBtn) saveProvidersBtn.addEventListener("click", saveEnvConfig);
+        const reloadEnvBtn = $("reloadEnvConfig");
+        if (reloadEnvBtn) reloadEnvBtn.addEventListener("click", () => { envConfigSnapshot = null; loadEnvConfig(); });
+        const copyBaseUrlBtn = $("copyBaseUrl");
+        if (copyBaseUrlBtn) copyBaseUrlBtn.addEventListener("click", copyBaseUrl);
+        const toggleTokenBtn = $("toggleTokenVisibility");
+        if (toggleTokenBtn) toggleTokenBtn.addEventListener("click", () => {
+          const input = $("tokenInput");
+          const showing = input.type === "text";
+          input.type = showing ? "password" : "text";
+          toggleTokenBtn.textContent = showing ? "👁" : "🙈";
+        });
         $("addOpenaiProvider").addEventListener("click", addOpenaiProviderCard);
         $("loadAppLog").addEventListener("click", () => loadServerLog("app"));
         $("loadAuditLog").addEventListener("click", () => loadServerLog("audit"));
