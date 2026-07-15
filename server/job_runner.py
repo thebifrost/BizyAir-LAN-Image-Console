@@ -284,8 +284,7 @@ class JobRunner:
     def _archive_result_images(self, item: dict, result: dict, headers: dict[str, str] | None = None) -> None:
         if not self.image_cache:
             return
-        outputs = result.get("outputs") if isinstance(result.get("outputs"), dict) else result.get("data", {}).get("outputs", {}) if isinstance(result.get("data"), dict) else {}
-        images = outputs.get("images", []) if isinstance(outputs, dict) else []
+        images = self._extract_result_image_urls(result)
         for index, url in enumerate(images):
             if not isinstance(url, str) or not (url.startswith(("http://", "https://")) or is_image_data_url(url)):
                 continue
@@ -316,6 +315,19 @@ class JobRunner:
             except Exception as exc:
                 self.logger.warning("结果图本地保存失败 item=%s index=%s: %s", item["id"], index, redact(exc, self.config))
 
+    @staticmethod
+    def _extract_result_image_urls(result: dict) -> list:
+        """从各种结果结构里安全提取 outputs.images 列表（原地引用，方便替换 data URL）。"""
+        outputs = None
+        if isinstance(result.get("outputs"), dict):
+            outputs = result["outputs"]
+        elif isinstance(result.get("data"), dict) and isinstance(result["data"].get("outputs"), dict):
+            outputs = result["data"]["outputs"]
+        if not isinstance(outputs, dict):
+            return []
+        images = outputs.get("images")
+        return images if isinstance(images, list) else []
+
     def _create_upstream_task(self, item: dict, key: BizyAirKeyConfig) -> str:
         response, data = self.upstream_client.post(f"/trd_api/{item['model']}", key, item["payload"], timeout=60)
         if not response.ok:
@@ -327,10 +339,15 @@ class JobRunner:
 
     def _poll_upstream_task(self, item_id: str, request_id: str, key: BizyAirKeyConfig) -> dict:
         deadline = time.monotonic() + self.config.max_poll_seconds
+        base_interval = max(0.5, float(self.config.poll_interval_seconds))
+        # 指数退避：base -> base*2 -> ... 封顶 base*4 或 10s，防止大批量任务打爆上游
+        max_interval = min(base_interval * 4, 10.0)
+        interval = base_interval
         while True:
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"上游任务轮询超时: request_id={request_id}")
-            time.sleep(min(self.config.poll_interval_seconds, max(deadline - time.monotonic(), 0)))
+            time.sleep(min(interval, max(deadline - time.monotonic(), 0)))
+            interval = min(interval * 1.5, max_interval)
             item = self.db.get_item_for_processing(item_id)
             if item.get("cancel_requested"):
                 self.db.finish_item(item_id, "cancelled")

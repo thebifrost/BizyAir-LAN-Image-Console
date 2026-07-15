@@ -12,6 +12,7 @@
         <div class="brand"><div class="mark">LAN</div><span>BizyAir LAN Image Console by Bifrost</span></div>
         <div class="nav-actions">
           <span class="pill" id="gatewayStatus">待认证</span>
+          <button class="pill" id="toggleTheme" type="button" title="切换深色/浅色主题" aria-label="切换主题">🌓</button>
           <button class="pill" id="openRuntimeSettings" type="button">OpenAI 设置</button>
           <button class="pill" id="openAuth">访问口令</button>
           <button class="pill" id="refreshJobs">刷新历史</button>
@@ -277,12 +278,15 @@
     <dialog id="imageLightbox" class="image-lightbox">
       <div class="lightbox-body">
         <button class="lightbox-close" id="closeImageLightbox" type="button">关闭</button>
+        <button class="lightbox-nav lightbox-nav-prev" id="lightboxPrev" type="button" aria-label="上一张" title="上一张 (←)">‹</button>
+        <button class="lightbox-nav lightbox-nav-next" id="lightboxNext" type="button" aria-label="下一张" title="下一张 (→)">›</button>
         <img id="lightboxImage" alt="历史大图预览" />
         <div class="lightbox-actions">
           <button class="secondary" id="addLightboxReference" type="button">加参考</button>
           <button class="secondary" id="setLightboxMain" type="button">设为主图</button>
           <button class="secondary" id="rerunLightboxImage" type="button">再次生成</button>
           <button class="secondary" id="loadLightboxParams" type="button">加载参数</button>
+          <button class="secondary" id="copyLightboxPrompt" type="button">复制提示词</button>
           <button class="secondary" id="copyLightboxImage" type="button">复制链接</button>
           <a class="secondary download-icon" id="downloadLightboxImage" download target="_blank" rel="noopener" aria-label="下载原图" title="下载原图"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></a>
         </div>

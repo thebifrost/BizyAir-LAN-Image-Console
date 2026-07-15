@@ -48,6 +48,17 @@
         $("pickerReferenceTab").addEventListener("click", () => setHistoricalPickerRole("reference"));
         $("closeImageLightbox").addEventListener("click", closeImageLightbox);
         $("imageLightbox").addEventListener("close", resetImageLightbox);
+        // 大图预览：← → 切换，Esc 由 dialog 默认处理
+        $("imageLightbox").addEventListener("keydown", (event) => {
+          if (event.key === "ArrowLeft") { event.preventDefault(); navigateLightbox(-1); }
+          else if (event.key === "ArrowRight") { event.preventDefault(); navigateLightbox(1); }
+        });
+        const lightboxPrev = $("lightboxPrev");
+        const lightboxNext = $("lightboxNext");
+        if (lightboxPrev) lightboxPrev.addEventListener("click", (event) => { event.stopPropagation(); navigateLightbox(-1); });
+        if (lightboxNext) lightboxNext.addEventListener("click", (event) => { event.stopPropagation(); navigateLightbox(1); });
+        const copyLightboxPrompt = $("copyLightboxPrompt");
+        if (copyLightboxPrompt) copyLightboxPrompt.addEventListener("click", () => { if (activeLightboxRecord) copyPromptToClipboard(activeLightboxRecord.prompt); });
         $("cancelDeleteImage").addEventListener("click", () => { pendingDeleteImageRecord = null; $("deleteImageDialog").close(); });
         $("deleteImageDialog").addEventListener("close", () => { pendingDeleteImageRecord = null; });
         $("confirmDeleteImage").addEventListener("click", confirmDeleteHistoryImage);

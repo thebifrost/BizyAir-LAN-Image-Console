@@ -1,10 +1,16 @@
 import os
 import re
 import shutil
+import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from .config import AppConfig, PROJECT_ROOT, openai_provider_env_prefix
+
+
+# 多标签页同时保存 .env 时避免互相覆盖
+_ENV_WRITE_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -281,29 +287,47 @@ def normalize_float(value, minimum: float, label: str) -> str:
 
 def write_env_values(updates: dict[str, str], removals: set[str]) -> Path | None:
     env_path = PROJECT_ROOT / ".env"
-    backup_path = backup_env_file(env_path)
-    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.is_file() else []
-    updated: set[str] = set()
-    output: list[str] = []
-    for raw_line in lines:
-        stripped = raw_line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
+    with _ENV_WRITE_LOCK:
+        backup_path = backup_env_file(env_path)
+        lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.is_file() else []
+        updated: set[str] = set()
+        output: list[str] = []
+        for raw_line in lines:
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                output.append(raw_line)
+                continue
+            key, _old_value = stripped.split("=", 1)
+            key = key.strip()
+            if key in removals:
+                continue
+            if key in updates:
+                if key not in updated:
+                    output.append(f"{key}={updates[key]}")
+                    updated.add(key)
+                continue
             output.append(raw_line)
-            continue
-        key, _old_value = stripped.split("=", 1)
-        key = key.strip()
-        if key in removals:
-            continue
-        if key in updates:
+        for key, value in updates.items():
             if key not in updated:
-                output.append(f"{key}={updates[key]}")
-                updated.add(key)
-            continue
-        output.append(raw_line)
-    for key, value in updates.items():
-        if key not in updated:
-            output.append(f"{key}={value}")
-    env_path.write_text("\n".join(output).rstrip() + "\n", encoding="utf-8")
+                output.append(f"{key}={value}")
+        # 通过临时文件 + 原子替换写入，避免写到一半崩溃导致 .env 损坏
+        content = "\n".join(output).rstrip() + "\n"
+        fd, tmp_name = tempfile.mkstemp(prefix=".env.", suffix=".tmp", dir=str(env_path.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+                tmp_file.write(content)
+                tmp_file.flush()
+                try:
+                    os.fsync(tmp_file.fileno())
+                except OSError:
+                    pass
+            os.replace(tmp_name, env_path)
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
     return backup_path
 
 

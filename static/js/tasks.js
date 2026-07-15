@@ -173,8 +173,12 @@
       }
 
       function setSubmitButtonsDisabled(disabled) {
-        $("submitJobs").disabled = disabled;
-        $("batchSubmitJobs").disabled = disabled;
+        const submitBtn = $("submitJobs");
+        const batchBtn = $("batchSubmitJobs");
+        submitBtn.disabled = disabled;
+        batchBtn.disabled = disabled;
+        submitBtn.classList.toggle("is-loading", Boolean(disabled));
+        batchBtn.classList.toggle("is-loading", Boolean(disabled));
       }
 
       function getNextMainImageUrl() {

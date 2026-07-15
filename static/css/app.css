@@ -890,6 +890,29 @@
         z-index: 2;
       }
       .lightbox-close:hover { background: rgba(0,0,0,0.7); transform: scale(1.05); }
+      .lightbox-nav {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 48px;
+        height: 68px;
+        border: 0;
+        border-radius: 14px;
+        color: white;
+        background: rgba(0,0,0,0.45);
+        backdrop-filter: blur(10px);
+        font-size: 32px;
+        line-height: 1;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        transition: background var(--transition-fast), transform var(--transition-fast);
+        z-index: 2;
+      }
+      .lightbox-nav:hover { background: rgba(0,0,0,0.7); transform: translateY(-50%) scale(1.05); }
+      .lightbox-nav-prev { left: 18px; }
+      .lightbox-nav-next { right: 18px; }
+      .lightbox-nav[hidden] { display: none; }
       .lightbox-actions {
         position: absolute;
         right: 18px;
@@ -1084,3 +1107,92 @@
         .grid-form, .key-info-grid { grid-template-columns: 1fr; }
         .upload-panel { grid-template-columns: 1fr; }
       }
+
+      /* ---------- Loading spinner on submit buttons ---------- */
+      button.is-loading {
+        position: relative;
+        color: transparent !important;
+        pointer-events: none;
+      }
+      button.is-loading::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 18px;
+        height: 18px;
+        margin: -9px 0 0 -9px;
+        border-radius: 50%;
+        border: 2.5px solid rgba(255,255,255,0.35);
+        border-top-color: currentColor;
+        color: var(--ink);
+        animation: bizySpinner 0.8s linear infinite;
+      }
+      @keyframes bizySpinner { to { transform: rotate(360deg); } }
+
+      /* ---------- Task list max height (avoid runaway right column) ---------- */
+      .task-list { max-height: min(60vh, 720px); }
+
+      /* ---------- History controls: cleaner wrapping on narrow screens ---------- */
+      .history-controls { flex-wrap: wrap; row-gap: 8px; }
+
+      /* ---------- Dark mode ---------- */
+      html[data-theme="dark"] {
+        color-scheme: dark;
+      }
+      html[data-theme="dark"] body {
+        color: #ece5d6;
+        background:
+          radial-gradient(circle at 12% 18%, rgba(255, 176, 0, 0.18), transparent 22rem),
+          radial-gradient(circle at 88% 8%, rgba(39, 71, 255, 0.22), transparent 28rem),
+          radial-gradient(circle at 76% 84%, rgba(255, 95, 56, 0.14), transparent 26rem),
+          linear-gradient(135deg, #14110c 0%, #1c1712 48%, #0f0d0a 100%);
+      }
+      html[data-theme="dark"] {
+        --ink: #ece5d6;
+        --muted: #a89f8d;
+        --paper: #1e1a14;
+        --paper-2: #241f18;
+        --line: rgba(255, 245, 214, 0.14);
+        --line-strong: rgba(255, 245, 214, 0.3);
+        --shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+        --shadow-sm: 0 8px 24px rgba(0, 0, 0, 0.4);
+        --shadow-md: 0 14px 40px rgba(0, 0, 0, 0.5);
+      }
+      html[data-theme="dark"] body::before {
+        opacity: 0.18;
+        background-image:
+          linear-gradient(rgba(255, 245, 214, 0.06) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 245, 214, 0.06) 1px, transparent 1px);
+      }
+      html[data-theme="dark"] .pill,
+      html[data-theme="dark"] .secondary,
+      html[data-theme="dark"] input,
+      html[data-theme="dark"] select,
+      html[data-theme="dark"] textarea {
+        background: rgba(36, 31, 24, 0.9);
+        color: var(--ink);
+        border-color: var(--line-strong);
+      }
+      html[data-theme="dark"] .mark { color: #1a1610; }
+      html[data-theme="dark"] .card,
+      html[data-theme="dark"] .sidebar-section,
+      html[data-theme="dark"] .studio,
+      html[data-theme="dark"] .image-rail,
+      html[data-theme="dark"] .runtime-dialog,
+      html[data-theme="dark"] dialog {
+        background: rgba(30, 26, 20, 0.94);
+        color: var(--ink);
+        border-color: var(--line);
+      }
+      html[data-theme="dark"] .task-item,
+      html[data-theme="dark"] .image-box,
+      html[data-theme="dark"] .env-grid,
+      html[data-theme="dark"] .provider-config-list {
+        background: rgba(36, 31, 24, 0.85);
+        color: var(--ink);
+      }
+      html[data-theme="dark"] .log-entry { color: #d4cdb8; }
+      html[data-theme="dark"] .hint,
+      html[data-theme="dark"] small { color: var(--muted); }
+      html[data-theme="dark"] button.is-loading::after { color: #ece5d6; }

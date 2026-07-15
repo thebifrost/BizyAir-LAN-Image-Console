@@ -26,12 +26,14 @@ server.handlers.LanGatewayHandler
 | `upload_server.py` | 兼容旧启动方式的入口。 |
 | `server/app.py` | 组装配置、数据库、上游客户端、任务队列和 HTTP server。 |
 | `server/http_routes.py` | 集中维护 GET/POST/DELETE 路由分发和认证动作。 |
-| `server/handlers.py` | 具体 HTTP 处理逻辑，例如上传、任务管理、OpenAI 兼容接口和静态文件输出。 |
+| `server/handlers.py` | 基础 HTTP 处理骨架：`do_*` + `_dispatch` + 认证 + 静态/图片流式响应（含 ETag/304）+ 通用 JSON 序列化。 |
+| `server/handlers_openai.py` | OpenAI 兼容接口 mixin：`/v1/models`、`/v1/images/*`、`/v1/chat/completions`。 |
+| `server/handlers_upload.py` | 上传相关 mixin：`/api/upload`、multipart 解析、BizyAir/ImgBB 分发。 |
 | `server/config.py` | 环境变量加载、类型转换、默认值和 provider 配置解析。 |
-| `server/env_store.py` | 前端运行时配置保存和 `.env` 更新。 |
+| `server/env_store.py` | 前端运行时配置保存和 `.env` 更新（加锁 + 原子替换）。 |
 | `server/database.py` | SQLite schema、任务状态、审计日志和本地图片记录。 |
-| `server/job_runner.py` | 后台 worker、任务执行、轮询、取消、结果图归档。 |
-| `server/upstream_client.py` | BizyAir 和 OpenAI-compatible 上游 HTTP 客户端。 |
+| `server/job_runner.py` | 后台 worker、任务执行、指数退避轮询、取消、结果图归档。 |
+| `server/upstream_client.py` | BizyAir 和 OpenAI-compatible 上游 HTTP 客户端（Session + 连接池）。 |
 | `server/image_cache.py` | 远程图片缓存、本地结果归档和下载安全限制。 |
 | `server/schemas.py` | 模型参数 schema、白名单清洗和输入 URL 规则。 |
 | `static/js/` | 前端状态、API、上传、任务队列、历史、配置等模块。 |

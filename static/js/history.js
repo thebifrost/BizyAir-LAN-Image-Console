@@ -246,6 +246,47 @@
         wireCachedImageFallbacks($("imageLightbox"));
         $("downloadLightboxImage").href = activeLightboxRecord.downloadUrl;
         $("imageLightbox").showModal();
+        updateLightboxNavButtons();
+      }
+
+      function navigateLightbox(delta) {
+        if (!activeLightboxRecord) return;
+        const filtered = getFilteredHistoryRecords();
+        if (!filtered.length) return;
+        const currentIndex = filtered.findIndex((item) =>
+          (item.id && item.id === activeLightboxRecord.id) ||
+          item.displayUrl === activeLightboxRecord.displayUrl ||
+          item.url === activeLightboxRecord.url
+        );
+        if (currentIndex === -1) return;
+        const nextIndex = (currentIndex + delta + filtered.length) % filtered.length;
+        const nextRecord = filtered[nextIndex];
+        // 翻页跟随大图切换
+        const nextPage = Math.floor(nextIndex / historyPageSize) + 1;
+        if (nextPage !== historyPage) {
+          historyPage = nextPage;
+          renderHistoryPage();
+        }
+        openImageLightbox(nextRecord);
+      }
+
+      function updateLightboxNavButtons() {
+        const filtered = getFilteredHistoryRecords();
+        const hasMultiple = filtered.length > 1;
+        const prev = $("lightboxPrev");
+        const next = $("lightboxNext");
+        if (prev) prev.hidden = !hasMultiple;
+        if (next) next.hidden = !hasMultiple;
+      }
+
+      async function copyPromptToClipboard(text) {
+        if (!text) { toast("这张图片没有记录提示词。"); return; }
+        try {
+          await navigator.clipboard.writeText(text);
+          toast("已复制提示词到剪贴板。");
+        } catch {
+          toast("复制失败，请手动选中提示词区域复制。");
+        }
       }
 
       function closeImageLightbox() {

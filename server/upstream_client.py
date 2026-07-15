@@ -19,6 +19,12 @@ class UpstreamClient:
         self.metadata_url = config.bizyair_metadata_url
         self.session = requests.Session()
         self._thread_local = threading.local()
+        # 加大连接池，避免多 worker 并发时反复握手
+        pool_size = max(getattr(config, "worker_threads", 4) * 2, 16)
+        adapter = requests.adapters.HTTPAdapter(pool_connections=pool_size, pool_maxsize=pool_size)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+        self._pool_size = pool_size
 
     def _session(self):
         if not isinstance(self.session, requests.Session):
@@ -26,6 +32,12 @@ class UpstreamClient:
         session = getattr(self._thread_local, "session", None)
         if session is None:
             session = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=self._pool_size,
+                pool_maxsize=self._pool_size,
+            )
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
             self._thread_local.session = session
         return session
 
